@@ -1,9 +1,9 @@
 # coding: utf-8
 """
-    flask_oauthlib.provider.oauth2
+    sanic_oauthlib.provider.oauth2
     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    Implemnts OAuth2 provider support for Flask.
+    Implemnts OAuth2 provider support for Sanic.
 
     :copyright: (c) 2013 - 2014 by Hsiaoming Yang.
 """
@@ -11,25 +11,559 @@
 import os
 import logging
 import datetime
-from functools import wraps
-from flask import request, url_for
-from flask import redirect, abort
-from werkzeug import cached_property
-from werkzeug.utils import import_string
+from functools import wraps, lru_cache
+from inspect import isawaitable
+
+from sanic import response
+from sanic.exceptions import Unauthorized
+from spf import SanicPluginsFramework, SanicPlugin
 from oauthlib import oauth2
 from oauthlib.oauth2 import RequestValidator, Server
 from oauthlib.common import to_unicode, add_params_to_uri
-from ..utils import extract_params, decode_base64, create_response
+from spf.plugin import PluginAssociated
+
+from ..utils import extract_params, decode_base64, create_response, \
+    import_string
 
 __all__ = ('OAuth2Provider', 'OAuth2RequestValidator')
 
-log = logging.getLogger('flask_oauthlib')
+log = logging.getLogger('sanic_oauthlib')
 
 
-class OAuth2Provider(object):
+class OAuth2ProviderAssociated(PluginAssociated):
+
+    def context(self):
+        (_p, reg) = self
+        (s, n, _u) = reg
+        try:
+            return s.get_context(n)
+        except AttributeError:
+            raise RuntimeError("Cannot get context associated with OAuth2Provider app plugin")
+
+    def before_request(self, f):
+        """Register functions to be invoked before accessing the resource.
+
+        The function accepts nothing as parameters, but you can get
+        information from `Flask.request` object. It is usually useful
+        for setting limitation on the client request::
+
+            @oauth.before_request
+            def limit_client_request():
+                client_id = request.args.get('client_id')
+                if not client_id:
+                    return
+                client = Client.get(client_id)
+                if over_limit(client):
+                    return abort(403)
+
+                track_request(client)
+        """
+        c = self.context()
+        c._before_request_funcs.append(f)
+        return f
+
+    def after_request(self, f):
+        """Register functions to be invoked after accessing the resource.
+
+        The function accepts ``valid`` and ``request`` as parameters,
+        and it should return a tuple of them::
+
+            @oauth.after_request
+            def valid_after_request(valid, oauth):
+                if oauth.user in black_list:
+                    return False, oauth
+                return valid, oauth
+        """
+        c = self.context()
+        c._after_request_funcs.append(f)
+        return f
+
+    def exception_handler(self, f):
+        """Register a function as custom exception handler.
+
+        **As the default error handling is leaking error to the client, it is
+        STRONGLY RECOMMENDED to implement your own handler to mask
+        the server side errors in production environment.**
+
+        When an error occur during execution, we can
+        handle the error with with the registered function. The function
+        accepts two parameters:
+            - error: the error raised
+            - redirect_content: the content used in the redirect by default
+
+        usage with the flask error handler ::
+            @oauth.exception_handler
+            def custom_exception_handler(error, *args):
+                raise error
+
+            @app.errorhandler(Exception)
+            def all_exception_handler(*args):
+                # any treatment you need for the error
+                return "Server error", 500
+
+        If no function is registered, it will do a redirect with ``redirect_content`` as content.
+        """
+        c = self.context()
+        c._exception_handler = f
+        return f
+
+    def invalid_response(self, f):
+        """Register a function for responsing with invalid request.
+
+        When an invalid request proceeds to :meth:`require_oauth`, we can
+        handle the request with the registered function. The function
+        accepts one parameter, which is an oauthlib Request object::
+
+            @oauth.invalid_response
+            def invalid_require_oauth(req):
+                return jsonify(message=req.error_message), 401
+
+        If no function is registered, it will return with ``abort(401)``.
+        """
+        c = self.context()
+        c._invalid_response = f
+        return f
+
+    def clientgetter(self, f):
+        """Register a function as the client getter.
+
+        The function accepts one parameter `client_id`, and it returns
+        a client object with at least these information:
+
+            - client_id: A random string
+            - client_secret: A random string
+            - is_confidential: A bool represents if it is confidential
+            - redirect_uris: A list of redirect uris
+            - default_redirect_uri: One of the redirect uris
+            - default_scopes: Default scopes of the client
+
+        The client may contain more information, which is suggested:
+
+            - allowed_grant_types: A list of grant types
+            - allowed_response_types: A list of response types
+            - validate_scopes: A function to validate scopes
+
+        Implement the client getter::
+
+            @oauth.clientgetter
+            def get_client(client_id):
+                client = get_client_model(client_id)
+                # Client is an object
+                return client
+        """
+        c = self.context()
+        c._clientgetter = f
+        return f
+
+    def usergetter(self, f):
+        """Register a function as the user getter.
+
+        This decorator is only required for **password credential**
+        authorization::
+
+            @oauth.usergetter
+            def get_user(username, password, client, request,
+                         *args, **kwargs):
+                # client: current request client
+                if not client.has_password_credential_permission:
+                    return None
+                user = User.get_user_by_username(username)
+                if not user.validate_password(password):
+                    return None
+
+                # parameter `request` is an OAuthlib Request object.
+                # maybe you will need it somewhere
+                return user
+        """
+        c = self.context()
+        c._usergetter = f
+        return f
+
+    def tokengetter(self, f):
+        """Register a function as the token getter.
+
+        The function accepts an `access_token` or `refresh_token` parameters,
+        and it returns a token object with at least these information:
+
+            - access_token: A string token
+            - refresh_token: A string token
+            - client_id: ID of the client
+            - scopes: A list of scopes
+            - expires: A `datetime.datetime` object
+            - user: The user object
+
+        The implementation of tokengetter should accepts two parameters,
+        one is access_token the other is refresh_token::
+
+            @oauth.tokengetter
+            def bearer_token(access_token=None, refresh_token=None):
+                if access_token:
+                    return get_token(access_token=access_token)
+                if refresh_token:
+                    return get_token(refresh_token=refresh_token)
+                return None
+        """
+        c = self.context()
+        c._tokengetter = f
+        return f
+
+    def tokensetter(self, f):
+        """Register a function to save the bearer token.
+
+        The setter accepts two parameters at least, one is token,
+        the other is request::
+
+            @oauth.tokensetter
+            def set_token(token, request, *args, **kwargs):
+                save_token(token, request.client, request.user)
+
+        The parameter token is a dict, that looks like::
+
+            {
+                u'access_token': u'6JwgO77PApxsFCU8Quz0pnL9s23016',
+                u'token_type': u'Bearer',
+                u'expires_in': 3600,
+                u'scope': u'email address'
+            }
+
+        The request is an object, that contains an user object and a
+        client object.
+        """
+        c = self.context()
+        c._tokensetter = f
+        return f
+
+    def grantgetter(self, f):
+        """Register a function as the grant getter.
+
+        The function accepts `client_id`, `code` and more::
+
+            @oauth.grantgetter
+            def grant(client_id, code):
+                return get_grant(client_id, code)
+
+        It returns a grant object with at least these information:
+
+            - delete: A function to delete itself
+        """
+        c = self.context()
+        c._grantgetter = f
+        return f
+
+    def grantsetter(self, f):
+        """Register a function to save the grant code.
+
+        The function accepts `client_id`, `code`, `request` and more::
+
+            @oauth.grantsetter
+            def set_grant(client_id, code, request, *args, **kwargs):
+                save_grant(client_id, code, request.user, request.scopes)
+        """
+        c = self.context()
+        c._grantsetter = f
+        return f
+
+    @lru_cache()
+    def server(self):
+        """
+        All in one endpoints. This property is created automatically
+        if you have implemented all the getters and setters.
+
+        However, if you are not satisfied with the getter and setter,
+        you can create a validator with :class:`OAuth2RequestValidator`::
+
+            class MyValidator(OAuth2RequestValidator):
+                def validate_client_id(self, client_id):
+                    # do something
+                    return True
+
+        And assign the validator for the provider::
+
+            oauth._validator = MyValidator()
+        """
+        ctx = self.context()
+        cfg = ctx._config
+        expires_in = cfg.get('OAUTH2_PROVIDER_TOKEN_EXPIRES_IN')
+        token_generator = cfg.get(
+            'OAUTH2_PROVIDER_TOKEN_GENERATOR', None
+        )
+        if token_generator and not callable(token_generator):
+            token_generator = import_string(token_generator)
+
+        refresh_token_generator = cfg.get(
+            'OAUTH2_PROVIDER_REFRESH_TOKEN_GENERATOR', None
+        )
+        if refresh_token_generator and not callable(refresh_token_generator):
+            refresh_token_generator = import_string(refresh_token_generator)
+        _validator = ctx.get('_validator', None)
+        if _validator is not None:
+            return Server(
+                _validator,
+                token_expires_in=expires_in,
+                token_generator=token_generator,
+                refresh_token_generator=refresh_token_generator,
+            )
+
+        _clientgetter = ctx.get('_clientgetter', None)
+        _tokengetter = ctx.get('_tokengetter', None)
+        _tokensetter = ctx.get('_tokensetter', None)
+        _grantgetter = ctx.get('_grantgetter', None)
+        _grantsetter = ctx.get('_grantsetter', None)
+        if _clientgetter is not None and\
+            _tokengetter is not None and\
+            _tokensetter is not None and\
+            _grantgetter is not None and\
+            _grantsetter is not None:
+
+            usergetter = ctx.get('_usergetter', None)
+            validator_class = ctx._validator_class
+            if validator_class is None:
+                validator_class = OAuth2RequestValidator
+            validator = validator_class(
+                clientgetter=_clientgetter,
+                tokengetter=_tokengetter,
+                grantgetter=_grantgetter,
+                usergetter=usergetter,
+                tokensetter=_tokensetter,
+                grantsetter=_grantsetter,
+            )
+            ctx._validator = validator
+            return Server(
+                validator,
+                token_expires_in=expires_in,
+                token_generator=token_generator,
+                refresh_token_generator=refresh_token_generator,
+            )
+        raise RuntimeError('oauth2 provider plugin not bound to required getters and setters')
+
+    @lru_cache()
+    def error_uri(self):
+        """The error page URI.
+
+        When something turns error, it will redirect to this error page.
+        You can configure the error page URI with Flask config::
+
+            OAUTH2_PROVIDER_ERROR_URI = '/error'
+
+        You can also define the error page by a named endpoint::
+
+            OAUTH2_PROVIDER_ERROR_ENDPOINT = 'oauth.error'
+        """
+        ctx = self.context()
+        cfg = ctx._config
+        error_uri = cfg.get('OAUTH2_PROVIDER_ERROR_URI')
+        if error_uri:
+            return error_uri
+        error_endpoint = cfg.get('OAUTH2_PROVIDER_ERROR_ENDPOINT')
+        if error_endpoint:
+            return ctx.app.url_for(error_endpoint)
+        return '/oauth/errors'
+
+    def verify_request(self, request, scopes):
+        """Verify current request, get the oauth data.
+
+        If you can't use the ``require_oauth`` decorator, you can fetch
+        the data in your request body::
+
+            def your_handler():
+                valid, req = oauth.verify_request(request, ['email'])
+                if valid:
+                    return jsonify(user=req.user)
+                return jsonify(status='error')
+        """
+        return self.plugin.verify_request(request, scopes, self)
+
+
+    def authorize_handler(self, f):
+        """Authorization handler decorator.
+
+        This decorator will sort the parameters and headers out, and
+        pre validate everything::
+
+            @app.route('/oauth/authorize', methods=['GET', 'POST'])
+            @oauth.authorize_handler
+            def authorize(*args, **kwargs):
+                if request.method == 'GET':
+                    # render a page for user to confirm the authorization
+                    return render_template('oauthorize.html')
+
+                confirm = request.form.get('confirm', 'no')
+                return confirm == 'yes'
+        """
+        plug, reg = self
+        context = self.context()
+        @wraps(f)
+        async def decorated(request, *args, **kwargs):
+            nonlocal self, plug, reg, context
+            # raise if server not implemented
+            server = self.server()
+            uri, http_method, body, headers = extract_params(request)
+
+            if request.method in ('GET', 'HEAD'):
+                redirect_uri = request.args.get('redirect_uri', self.error_uri())
+                log.debug('Found redirect_uri %s.', redirect_uri)
+                try:
+                    ret = server.validate_authorization_request(
+                        uri, http_method, body, headers
+                    )
+                    scopes, credentials = ret
+                    kwargs['scopes'] = scopes
+                    if 'request' in credentials:
+                        kwargs['orequest'] = credentials.pop("request")
+                    kwargs.update(credentials)
+                except oauth2.FatalClientError as e:
+                    log.debug('Fatal client error %r', e, exc_info=True)
+                    return plug._on_exception(context, e, e.in_uri(self.error_uri()))
+                except oauth2.OAuth2Error as e:
+                    log.debug('OAuth2Error: %r', e, exc_info=True)
+                    # on auth error, we should preserve state if it's present according to RFC 6749
+                    state = request.args.get('state')
+                    if state and not e.state:
+                        e.state = state  # set e.state so e.in_uri() can add the state query parameter to redirect uri
+                    return plug._on_exception(context, e, e.in_uri(redirect_uri))
+
+                except Exception as e:
+                    log.exception(e)
+                    return plug._on_exception(context, e, add_params_to_uri(
+                        self.error_uri(), {'error': str(e)}
+                    ))
+
+            else:
+                redirect_uri = request.args.get(
+                    'redirect_uri', self.error_uri()
+                )
+
+            try:
+                rv = f(request, *args, context=context, **kwargs)
+                if isawaitable(rv):
+                    rv = await rv
+            except oauth2.FatalClientError as e:
+                log.debug('Fatal client error %r', e, exc_info=True)
+                return plug._on_exception(context, e, e.in_uri(self.error_uri()))
+            except oauth2.OAuth2Error as e:
+                log.debug('OAuth2Error: %r', e, exc_info=True)
+                # on auth error, we should preserve state if it's present according to RFC 6749
+                state = request.args.get('state')
+                if state and not e.state:
+                    e.state = state  # set e.state so e.in_uri() can add the state query parameter to redirect uri
+                return plug._on_exception(context, e, e.in_uri(redirect_uri))
+
+            if not isinstance(rv, bool):
+                # if is a response or redirect
+                return rv
+
+            if not rv:
+                # denied by user
+                e = oauth2.AccessDeniedError(state=request.args.get('state'))
+                return plug._on_exception(context, e, e.in_uri(redirect_uri))
+
+            return plug.confirm_authorization_request(request, self)
+
+        return decorated
+
+    def token_handler(self, f):
+        """Access/refresh token handler decorator.
+
+        The decorated function should return an dictionary or None as
+        the extra credentials for creating the token response.
+
+        You can control the access method with standard flask route mechanism.
+        If you only allow the `POST` method::
+
+            @app.route('/oauth/token', methods=['POST'])
+            @oauth.token_handler
+            def access_token():
+                return None
+        """
+        context = self.context()
+        @wraps(f)
+        async def decorated(request, *args, **kwargs):
+            nonlocal self, context
+            server = self.server()
+            uri, http_method, body, headers = extract_params(request)
+            credentials = f(request, *args, context=context, **kwargs)
+            if isawaitable(credentials):
+                credentials = await credentials
+            credentials = credentials or {}
+            log.debug('Fetched extra credentials, %r.', credentials)
+            ret = server.create_token_response(
+                uri, http_method, body, headers, credentials
+            )
+            return create_response(*ret)
+        return decorated
+
+    def revoke_handler(self, _f):
+        """Access/refresh token revoke decorator.
+
+        Any return value by the decorated function will get discarded as
+        defined in [`RFC7009`_].
+
+        You can control the access method with the standard flask routing
+        mechanism, as per [`RFC7009`_] it is recommended to only allow
+        the `POST` method::
+
+            @app.route('/oauth/revoke', methods=['POST'])
+            @oauth.revoke_handler
+            def revoke_token():
+                pass
+
+        .. _`RFC7009`: http://tools.ietf.org/html/rfc7009
+        """
+        @wraps(_f)
+        def decorated(request, *args, **kwargs):
+            nonlocal self
+            server = self.server()
+            token = request.args.get('token')
+            request.token_type_hint = request.args.get('token_type_hint')
+            if token:
+                request.token = token
+
+            uri, http_method, body, headers = extract_params(request)
+            ret = server.create_revocation_response(
+                uri, headers=headers, body=body, http_method=http_method)
+            return create_response(*ret)
+        return decorated
+
+    def require_oauth(self, *scopes):
+        """Protect resource with specified scopes."""
+        def wrapper(f):
+            nonlocal self
+            plug, reg = self
+            context = self.context()
+            @wraps(f)
+            async def decorated(request, *args, **kwargs):
+                nonlocal self, plug, reg, context
+                for func in context._before_request_funcs:
+                    r = func()
+                    if isawaitable(r):
+                        r = await r
+                request_context = context['request'][id(request)]
+                _oauth = request_context.get('oauth', None)
+                if _oauth:
+                    return f(request, *args, context=context, **kwargs)
+                valid, req = plug.verify_request(request, scopes, self)
+
+                for func in context._after_request_funcs:
+                    r = func(valid, req)
+                    if isawaitable(r):
+                        r = await r
+                    valid, req = r
+
+                if not valid:
+                    if context._invalid_response:
+                        return context._invalid_response(req)
+                    raise Unauthorized("Unauthorized")
+                request_context['oauth'] = req
+                # No need to await this
+                return f(request, *args, context=context, **kwargs)
+            return decorated
+        return wrapper
+
+
+class OAuth2Provider(SanicPlugin):
     """Provide secure services using OAuth2.
 
-    The server should provide an authorize handler and a token hander,
+    The server should provide an authorize handler and a token handler,
     But before the handlers are implemented, the server should provide
     some getters for the validation.
 
@@ -68,430 +602,51 @@ class OAuth2Provider(object):
         def user():
             return jsonify(request.oauth.user)
     """
+    __slots__ = tuple()
 
-    def __init__(self, app=None, validator_class=None):
-        self._before_request_funcs = []
-        self._after_request_funcs = []
-        self._exception_handler = None
-        self._invalid_response = None
-        self._validator_class = validator_class
-        if app:
-            self.init_app(app)
+    AssociatedTuple = OAuth2ProviderAssociated
 
-    def init_app(self, app):
-        """
-        This callback can be used to initialize an application for the
-        oauth provider instance.
-        """
-        self.app = app
+    def __init__(self, *args, **kwargs):
+        super(OAuth2Provider, self).__init__(*args, **kwargs)
+
+    def on_registered(self, context, *args, validator_class=None, **kwargs):
+        # this will need to be called more than once, for every app it is registered on.
+        app = context.app
+        context._config = {k: v for k, v in app.config.items()
+                           if k.startswith("OAUTH2_")}
+        context._before_request_funcs = []
+        context._after_request_funcs = []
+        context._exception_handler = None
+        context._invalid_response = None
+        context._validator_class = validator_class
         app.extensions = getattr(app, 'extensions', {})
         app.extensions['oauthlib.provider.oauth2'] = self
 
-    def _on_exception(self, error, redirect_content=None):
-
-        if self._exception_handler:
-            return self._exception_handler(error, redirect_content)
+    @classmethod
+    def _on_exception(cls, context, error, redirect_content=None):
+        if context._exception_handler:
+            return context._exception_handler(error, redirect_content)
         else:
-            return redirect(redirect_content)
+            return response.redirect(redirect_content)
 
-    @cached_property
-    def error_uri(self):
-        """The error page URI.
-
-        When something turns error, it will redirect to this error page.
-        You can configure the error page URI with Flask config::
-
-            OAUTH2_PROVIDER_ERROR_URI = '/error'
-
-        You can also define the error page by a named endpoint::
-
-            OAUTH2_PROVIDER_ERROR_ENDPOINT = 'oauth.error'
-        """
-        error_uri = self.app.config.get('OAUTH2_PROVIDER_ERROR_URI')
-        if error_uri:
-            return error_uri
-        error_endpoint = self.app.config.get('OAUTH2_PROVIDER_ERROR_ENDPOINT')
-        if error_endpoint:
-            return url_for(error_endpoint)
-        return '/oauth/errors'
-
-    @cached_property
-    def server(self):
-        """
-        All in one endpoints. This property is created automaticly
-        if you have implemented all the getters and setters.
-
-        However, if you are not satisfied with the getter and setter,
-        you can create a validator with :class:`OAuth2RequestValidator`::
-
-            class MyValidator(OAuth2RequestValidator):
-                def validate_client_id(self, client_id):
-                    # do something
-                    return True
-
-        And assign the validator for the provider::
-
-            oauth._validator = MyValidator()
-        """
-        expires_in = self.app.config.get('OAUTH2_PROVIDER_TOKEN_EXPIRES_IN')
-        token_generator = self.app.config.get(
-            'OAUTH2_PROVIDER_TOKEN_GENERATOR', None
-        )
-        if token_generator and not callable(token_generator):
-            token_generator = import_string(token_generator)
-
-        refresh_token_generator = self.app.config.get(
-            'OAUTH2_PROVIDER_REFRESH_TOKEN_GENERATOR', None
-        )
-        if refresh_token_generator and not callable(refresh_token_generator):
-            refresh_token_generator = import_string(refresh_token_generator)
-
-        if hasattr(self, '_validator'):
-            return Server(
-                self._validator,
-                token_expires_in=expires_in,
-                token_generator=token_generator,
-                refresh_token_generator=refresh_token_generator,
-            )
-
-        if hasattr(self, '_clientgetter') and \
-           hasattr(self, '_tokengetter') and \
-           hasattr(self, '_tokensetter') and \
-           hasattr(self, '_grantgetter') and \
-           hasattr(self, '_grantsetter'):
-
-            usergetter = None
-            if hasattr(self, '_usergetter'):
-                usergetter = self._usergetter
-
-            validator_class = self._validator_class
-            if validator_class is None:
-                validator_class = OAuth2RequestValidator
-            validator = validator_class(
-                clientgetter=self._clientgetter,
-                tokengetter=self._tokengetter,
-                grantgetter=self._grantgetter,
-                usergetter=usergetter,
-                tokensetter=self._tokensetter,
-                grantsetter=self._grantsetter,
-            )
-            self._validator = validator
-            return Server(
-                validator,
-                token_expires_in=expires_in,
-                token_generator=token_generator,
-                refresh_token_generator=refresh_token_generator,
-            )
-        raise RuntimeError('application not bound to required getters')
-
-    def before_request(self, f):
-        """Register functions to be invoked before accessing the resource.
-
-        The function accepts nothing as parameters, but you can get
-        information from `Flask.request` object. It is usually useful
-        for setting limitation on the client request::
-
-            @oauth.before_request
-            def limit_client_request():
-                client_id = request.values.get('client_id')
-                if not client_id:
-                    return
-                client = Client.get(client_id)
-                if over_limit(client):
-                    return abort(403)
-
-                track_request(client)
-        """
-        self._before_request_funcs.append(f)
-        return f
-
-    def after_request(self, f):
-        """Register functions to be invoked after accessing the resource.
-
-        The function accepts ``valid`` and ``request`` as parameters,
-        and it should return a tuple of them::
-
-            @oauth.after_request
-            def valid_after_request(valid, oauth):
-                if oauth.user in black_list:
-                    return False, oauth
-                return valid, oauth
-        """
-        self._after_request_funcs.append(f)
-        return f
-
-    def exception_handler(self, f):
-        """Register a function as custom exception handler.
-
-        **As the default error handling is leaking error to the client, it is
-        STRONGLY RECOMMENDED to implement your own handler to mask
-        the server side errors in production environment.**
-
-        When an error occur during execution, we can
-        handle the error with with the registered function. The function
-        accepts two parameters:
-            - error: the error raised
-            - redirect_content: the content used in the redirect by default
-
-        usage with the flask error handler ::
-            @oauth.exception_handler
-            def custom_exception_handler(error, *args):
-                raise error
-
-            @app.errorhandler(Exception)
-            def all_exception_handler(*args):
-                # any treatment you need for the error
-                return "Server error", 500
-
-        If no function is registered, it will do a redirect with ``redirect_content`` as content.
-        """
-        self._exception_handler = f
-        return f
-
-    def invalid_response(self, f):
-        """Register a function for responsing with invalid request.
-
-        When an invalid request proceeds to :meth:`require_oauth`, we can
-        handle the request with the registered function. The function
-        accepts one parameter, which is an oauthlib Request object::
-
-            @oauth.invalid_response
-            def invalid_require_oauth(req):
-                return jsonify(message=req.error_message), 401
-
-        If no function is registered, it will return with ``abort(401)``.
-        """
-        self._invalid_response = f
-        return f
-
-    def clientgetter(self, f):
-        """Register a function as the client getter.
-
-        The function accepts one parameter `client_id`, and it returns
-        a client object with at least these information:
-
-            - client_id: A random string
-            - client_secret: A random string
-            - is_confidential: A bool represents if it is confidential
-            - redirect_uris: A list of redirect uris
-            - default_redirect_uri: One of the redirect uris
-            - default_scopes: Default scopes of the client
-
-        The client may contain more information, which is suggested:
-
-            - allowed_grant_types: A list of grant types
-            - allowed_response_types: A list of response types
-            - validate_scopes: A function to validate scopes
-
-        Implement the client getter::
-
-            @oauth.clientgetter
-            def get_client(client_id):
-                client = get_client_model(client_id)
-                # Client is an object
-                return client
-        """
-        self._clientgetter = f
-        return f
-
-    def usergetter(self, f):
-        """Register a function as the user getter.
-
-        This decorator is only required for **password credential**
-        authorization::
-
-            @oauth.usergetter
-            def get_user(username, password, client, request,
-                         *args, **kwargs):
-                # client: current request client
-                if not client.has_password_credential_permission:
-                    return None
-                user = User.get_user_by_username(username)
-                if not user.validate_password(password):
-                    return None
-
-                # parameter `request` is an OAuthlib Request object.
-                # maybe you will need it somewhere
-                return user
-        """
-        self._usergetter = f
-        return f
-
-    def tokengetter(self, f):
-        """Register a function as the token getter.
-
-        The function accepts an `access_token` or `refresh_token` parameters,
-        and it returns a token object with at least these information:
-
-            - access_token: A string token
-            - refresh_token: A string token
-            - client_id: ID of the client
-            - scopes: A list of scopes
-            - expires: A `datetime.datetime` object
-            - user: The user object
-
-        The implementation of tokengetter should accepts two parameters,
-        one is access_token the other is refresh_token::
-
-            @oauth.tokengetter
-            def bearer_token(access_token=None, refresh_token=None):
-                if access_token:
-                    return get_token(access_token=access_token)
-                if refresh_token:
-                    return get_token(refresh_token=refresh_token)
-                return None
-        """
-        self._tokengetter = f
-        return f
-
-    def tokensetter(self, f):
-        """Register a function to save the bearer token.
-
-        The setter accepts two parameters at least, one is token,
-        the other is request::
-
-            @oauth.tokensetter
-            def set_token(token, request, *args, **kwargs):
-                save_token(token, request.client, request.user)
-
-        The parameter token is a dict, that looks like::
-
-            {
-                u'access_token': u'6JwgO77PApxsFCU8Quz0pnL9s23016',
-                u'token_type': u'Bearer',
-                u'expires_in': 3600,
-                u'scope': u'email address'
-            }
-
-        The request is an object, that contains an user object and a
-        client object.
-        """
-        self._tokensetter = f
-        return f
-
-    def grantgetter(self, f):
-        """Register a function as the grant getter.
-
-        The function accepts `client_id`, `code` and more::
-
-            @oauth.grantgetter
-            def grant(client_id, code):
-                return get_grant(client_id, code)
-
-        It returns a grant object with at least these information:
-
-            - delete: A function to delete itself
-        """
-        self._grantgetter = f
-        return f
-
-    def grantsetter(self, f):
-        """Register a function to save the grant code.
-
-        The function accepts `client_id`, `code`, `request` and more::
-
-            @oauth.grantsetter
-            def set_grant(client_id, code, request, *args, **kwargs):
-                save_grant(client_id, code, request.user, request.scopes)
-        """
-        self._grantsetter = f
-        return f
-
-    def authorize_handler(self, f):
-        """Authorization handler decorator.
-
-        This decorator will sort the parameters and headers out, and
-        pre validate everything::
-
-            @app.route('/oauth/authorize', methods=['GET', 'POST'])
-            @oauth.authorize_handler
-            def authorize(*args, **kwargs):
-                if request.method == 'GET':
-                    # render a page for user to confirm the authorization
-                    return render_template('oauthorize.html')
-
-                confirm = request.form.get('confirm', 'no')
-                return confirm == 'yes'
-        """
-        @wraps(f)
-        def decorated(*args, **kwargs):
-            # raise if server not implemented
-            server = self.server
-            uri, http_method, body, headers = extract_params()
-
-            if request.method in ('GET', 'HEAD'):
-                redirect_uri = request.args.get('redirect_uri', self.error_uri)
-                log.debug('Found redirect_uri %s.', redirect_uri)
-                try:
-                    ret = server.validate_authorization_request(
-                        uri, http_method, body, headers
-                    )
-                    scopes, credentials = ret
-                    kwargs['scopes'] = scopes
-                    kwargs.update(credentials)
-                except oauth2.FatalClientError as e:
-                    log.debug('Fatal client error %r', e, exc_info=True)
-                    return self._on_exception(e, e.in_uri(self.error_uri))
-                except oauth2.OAuth2Error as e:
-                    log.debug('OAuth2Error: %r', e, exc_info=True)
-                    # on auth error, we should preserve state if it's present according to RFC 6749
-                    state = request.values.get('state')
-                    if state and not e.state:
-                        e.state = state  # set e.state so e.in_uri() can add the state query parameter to redirect uri
-                    return self._on_exception(e, e.in_uri(redirect_uri))
-
-                except Exception as e:
-                    log.exception(e)
-                    return self._on_exception(e, add_params_to_uri(
-                        self.error_uri, {'error': str(e)}
-                    ))
-
-            else:
-                redirect_uri = request.values.get(
-                    'redirect_uri', self.error_uri
-                )
-
-            try:
-                rv = f(*args, **kwargs)
-            except oauth2.FatalClientError as e:
-                log.debug('Fatal client error %r', e, exc_info=True)
-                return self._on_exception(e, e.in_uri(self.error_uri))
-            except oauth2.OAuth2Error as e:
-                log.debug('OAuth2Error: %r', e, exc_info=True)
-                # on auth error, we should preserve state if it's present according to RFC 6749
-                state = request.values.get('state')
-                if state and not e.state:
-                    e.state = state  # set e.state so e.in_uri() can add the state query parameter to redirect uri
-                return self._on_exception(e, e.in_uri(redirect_uri))
-
-            if not isinstance(rv, bool):
-                # if is a response or redirect
-                return rv
-
-            if not rv:
-                # denied by user
-                e = oauth2.AccessDeniedError(state=request.values.get('state'))
-                return self._on_exception(e, e.in_uri(redirect_uri))
-              
-            return self.confirm_authorization_request()
-        return decorated
-
-    def confirm_authorization_request(self):
+    @classmethod
+    def confirm_authorization_request(cls, request, assoc):
         """When consumer confirm the authorization."""
-        server = self.server
-        scope = request.values.get('scope') or ''
+        server = assoc.server()
+        context = assoc.context()
+        scope = request.args.get('scope') or ''
         scopes = scope.split()
         credentials = dict(
-            client_id=request.values.get('client_id'),
-            redirect_uri=request.values.get('redirect_uri', None),
-            response_type=request.values.get('response_type', None),
-            state=request.values.get('state', None)
+            client_id=request.args.get('client_id'),
+            redirect_uri=request.args.get('redirect_uri', None),
+            response_type=request.args.get('response_type', None),
+            state=request.args.get('state', None)
         )
         log.debug('Fetched credentials from request %r.', credentials)
         redirect_uri = credentials.get('redirect_uri')
         log.debug('Found redirect_uri %s.', redirect_uri)
 
-        uri, http_method, body, headers = extract_params()
+        uri, http_method, body, headers = extract_params(request)
         try:
             ret = server.create_authorization_response(
                 uri, http_method, body, headers, scopes, credentials)
@@ -499,120 +654,39 @@ class OAuth2Provider(object):
             return create_response(*ret)
         except oauth2.FatalClientError as e:
             log.debug('Fatal client error %r', e, exc_info=True)
-            return self._on_exception(e, e.in_uri(self.error_uri))
+            return cls._on_exception(context, e, e.in_uri(assoc.error_uri()))
         except oauth2.OAuth2Error as e:
             log.debug('OAuth2Error: %r', e, exc_info=True)
-            
             # on auth error, we should preserve state if it's present according to RFC 6749
-            state = request.values.get('state')
+            state = request.args.get('state')
             if state and not e.state:
                 e.state = state  # set e.state so e.in_uri() can add the state query parameter to redirect uri
-            return self._on_exception(e, e.in_uri(redirect_uri or self.error_uri))
+            return cls._on_exception(context, e, e.in_uri(redirect_uri or assoc.error_uri()))
         except Exception as e:
             log.exception(e)
-            return self._on_exception(e, add_params_to_uri(
-                self.error_uri, {'error': str(e)}
+            return cls._on_exception(context, e, add_params_to_uri(
+                assoc.error_uri(), {'error': str(e)}
             ))
 
-    def verify_request(self, scopes):
+    @classmethod
+    def verify_request(cls, request, scopes, assoc):
         """Verify current request, get the oauth data.
 
         If you can't use the ``require_oauth`` decorator, you can fetch
         the data in your request body::
 
             def your_handler():
-                valid, req = oauth.verify_request(['email'])
+                valid, req = oauth.verify_request(req, ['email'])
                 if valid:
                     return jsonify(user=req.user)
                 return jsonify(status='error')
         """
-        uri, http_method, body, headers = extract_params()
-        return self.server.verify_request(
-            uri, http_method, body, headers, scopes
-        )
+        server = assoc.server()
+        uri, http_method, body, headers = extract_params(request)
+        return server.verify_request(uri, http_method, body, headers, scopes)
 
-    def token_handler(self, f):
-        """Access/refresh token handler decorator.
 
-        The decorated function should return an dictionary or None as
-        the extra credentials for creating the token response.
-
-        You can control the access method with standard flask route mechanism.
-        If you only allow the `POST` method::
-
-            @app.route('/oauth/token', methods=['POST'])
-            @oauth.token_handler
-            def access_token():
-                return None
-        """
-        @wraps(f)
-        def decorated(*args, **kwargs):
-            server = self.server
-            uri, http_method, body, headers = extract_params()
-            credentials = f(*args, **kwargs) or {}
-            log.debug('Fetched extra credentials, %r.', credentials)
-            ret = server.create_token_response(
-                uri, http_method, body, headers, credentials
-            )
-            return create_response(*ret)
-        return decorated
-
-    def revoke_handler(self, f):
-        """Access/refresh token revoke decorator.
-
-        Any return value by the decorated function will get discarded as
-        defined in [`RFC7009`_].
-
-        You can control the access method with the standard flask routing
-        mechanism, as per [`RFC7009`_] it is recommended to only allow
-        the `POST` method::
-
-            @app.route('/oauth/revoke', methods=['POST'])
-            @oauth.revoke_handler
-            def revoke_token():
-                pass
-
-        .. _`RFC7009`: http://tools.ietf.org/html/rfc7009
-        """
-        @wraps(f)
-        def decorated(*args, **kwargs):
-            server = self.server
-
-            token = request.values.get('token')
-            request.token_type_hint = request.values.get('token_type_hint')
-            if token:
-                request.token = token
-
-            uri, http_method, body, headers = extract_params()
-            ret = server.create_revocation_response(
-                uri, headers=headers, body=body, http_method=http_method)
-            return create_response(*ret)
-        return decorated
-
-    def require_oauth(self, *scopes):
-        """Protect resource with specified scopes."""
-        def wrapper(f):
-            @wraps(f)
-            def decorated(*args, **kwargs):
-                for func in self._before_request_funcs:
-                    func()
-
-                if hasattr(request, 'oauth') and request.oauth:
-                    return f(*args, **kwargs)
-
-                valid, req = self.verify_request(scopes)
-
-                for func in self._after_request_funcs:
-                    valid, req = func(valid, req)
-
-                if not valid:
-                    if self._invalid_response:
-                        return self._invalid_response(req)
-                    return abort(401)
-                request.oauth = req
-                return f(*args, **kwargs)
-            return decorated
-        return wrapper
+instance = oauth2provider = OAuth2Provider()
 
 
 class OAuth2RequestValidator(RequestValidator):
@@ -1041,3 +1115,4 @@ class OAuth2RequestValidator(RequestValidator):
         log.debug(msg)
         request.error_message = msg
         return False
+

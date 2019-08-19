@@ -1,136 +1,44 @@
 # coding: utf-8
 """
-    flask_oauthlib.provider.oauth1
+    sanic_oauthlib.provider.oauth1
     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    Implemnts OAuth1 provider support for Flask.
+    Implemnts OAuth1 provider support for Sanic.
 
     :copyright: (c) 2013 - 2014 by Hsiaoming Yang.
 """
 
 import logging
-from functools import wraps
-from werkzeug import cached_property
-from flask import request, redirect, url_for
-from flask import make_response, abort
+from functools import wraps, lru_cache
+from inspect import isawaitable
+
+from sanic.exceptions import Unauthorized
+from sanic.response import redirect, HTTPResponse
 from oauthlib.oauth1 import RequestValidator
 from oauthlib.oauth1 import WebApplicationServer as Server
 from oauthlib.oauth1 import SIGNATURE_HMAC, SIGNATURE_RSA
 from oauthlib.common import to_unicode, add_params_to_uri, urlencode
 from oauthlib.oauth1.rfc5849 import errors
+from spf import SanicPlugin
+from spf.plugin import PluginAssociated
+
 from ..utils import extract_params, create_response
 
 SIGNATURE_METHODS = (SIGNATURE_HMAC, SIGNATURE_RSA)
 
 __all__ = ('OAuth1Provider', 'OAuth1RequestValidator')
 
-log = logging.getLogger('flask_oauthlib')
+log = logging.getLogger('sanic_oauthlib')
 
+class OAuth1ProviderAssociated(PluginAssociated):
 
-class OAuth1Provider(object):
-    """Provide secure services using OAuth1.
-
-    Like many other Flask extensions, there are two usage modes. One is
-    binding the Flask app instance::
-
-        app = Flask(__name__)
-        oauth = OAuth1Provider(app)
-
-    The second possibility is to bind the Flask app later::
-
-        oauth = OAuth1Provider()
-
-        def create_app():
-            app = Flask(__name__)
-            oauth.init_app(app)
-            return app
-
-    And now you can protect the resource with realms::
-
-        @app.route('/api/user')
-        @oauth.require_oauth('email', 'username')
-        def user():
-            return jsonify(request.oauth.user)
-    """
-
-    def __init__(self, app=None):
-        self._before_request_funcs = []
-        self._after_request_funcs = []
-        if app:
-            self.init_app(app)
-
-    def init_app(self, app):
-        """
-        This callback can be used to initialize an application for the
-        oauth provider instance.
-        """
-        self.app = app
-        app.extensions = getattr(app, 'extensions', {})
-        app.extensions['oauthlib.provider.oauth1'] = self
-
-    @cached_property
-    def error_uri(self):
-        """The error page URI.
-
-        When something turns error, it will redirect to this error page.
-        You can configure the error page URI with Flask config::
-
-            OAUTH1_PROVIDER_ERROR_URI = '/error'
-
-        You can also define the error page by a named endpoint::
-
-            OAUTH1_PROVIDER_ERROR_ENDPOINT = 'oauth.error'
-        """
-        error_uri = self.app.config.get('OAUTH1_PROVIDER_ERROR_URI')
-        if error_uri:
-            return error_uri
-        error_endpoint = self.app.config.get('OAUTH1_PROVIDER_ERROR_ENDPOINT')
-        if error_endpoint:
-            return url_for(error_endpoint)
-        return '/oauth/errors'
-
-    @cached_property
-    def server(self):
-        """
-        All in one endpoints. This property is created automaticly
-        if you have implemented all the getters and setters.
-        """
-        if hasattr(self, '_validator'):
-            return Server(self._validator)
-
-        if hasattr(self, '_clientgetter') and \
-           hasattr(self, '_tokengetter') and \
-           hasattr(self, '_tokensetter') and \
-           hasattr(self, '_noncegetter') and \
-           hasattr(self, '_noncesetter') and \
-           hasattr(self, '_grantgetter') and \
-           hasattr(self, '_grantsetter') and \
-           hasattr(self, '_verifiergetter') and \
-           hasattr(self, '_verifiersetter'):
-
-            validator = OAuth1RequestValidator(
-                clientgetter=self._clientgetter,
-                tokengetter=self._tokengetter,
-                tokensetter=self._tokensetter,
-                grantgetter=self._grantgetter,
-                grantsetter=self._grantsetter,
-                noncegetter=self._noncegetter,
-                noncesetter=self._noncesetter,
-                verifiergetter=self._verifiergetter,
-                verifiersetter=self._verifiersetter,
-                config=self.app.config,
-            )
-
-            self._validator = validator
-            server = Server(validator)
-            if self.app.testing:
-                # It will always be false, since the redirect_uri
-                # didn't match when doing the testing
-                server._check_signature = lambda *args, **kwargs: True
-            return server
-        raise RuntimeError(
-            'application not bound to required getters and setters'
-        )
+    def context(self):
+        (_p, reg) = self
+        (s, n, _u) = reg
+        try:
+            return s.get_context(n)
+        except AttributeError:
+            raise RuntimeError("Cannot get context associated with OAuth1Provider app plugin")
 
     def before_request(self, f):
         """Register functions to be invoked before accessing the resource.
@@ -150,7 +58,8 @@ class OAuth1Provider(object):
 
                 track_request(client)
         """
-        self._before_request_funcs.append(f)
+        c = self.context()
+        c._before_request_funcs.append(f)
         return f
 
     def after_request(self, f):
@@ -165,7 +74,8 @@ class OAuth1Provider(object):
                     return False, oauth
                 return valid, oauth
         """
-        self._after_request_funcs.append(f)
+        c = self.context()
+        c._after_request_funcs.append(f)
         return f
 
     def clientgetter(self, f):
@@ -191,7 +101,8 @@ class OAuth1Provider(object):
                 # Client is an object
                 return client
         """
-        self._clientgetter = f
+        c = self.context()
+        c._clientgetter = f
         return f
 
     def tokengetter(self, f):
@@ -212,7 +123,8 @@ class OAuth1Provider(object):
             def get_access_token(client_key, token):
                 return AccessToken.get(client_key=client_key, token=token)
         """
-        self._tokengetter = f
+        c = self.context()
+        c._tokengetter = f
         return f
 
     def tokensetter(self, f):
@@ -246,7 +158,8 @@ class OAuth1Provider(object):
             - user: User object associated with this token
             - request_token: Requst token for exchanging this access token
         """
-        self._tokensetter = f
+        c = self.context()
+        c._tokensetter = f
         return f
 
     def grantgetter(self, f):
@@ -267,7 +180,8 @@ class OAuth1Provider(object):
             def get_request_token(token):
                 return RequestToken.get(token=token)
         """
-        self._grantgetter = f
+        c = self.context()
+        c._grantgetter = f
         return f
 
     def grantsetter(self, f):
@@ -286,7 +200,8 @@ class OAuth1Provider(object):
                 )
                 return data.save()
         """
-        self._grantsetter = f
+        c = self.context()
+        c._grantsetter = f
         return f
 
     def noncegetter(self, f):
@@ -307,7 +222,8 @@ class OAuth1Provider(object):
                           access_token):
                 return Nonce.get("...")
         """
-        self._noncegetter = f
+        c = self.context()
+        c._noncegetter = f
         return f
 
     def noncesetter(self, f):
@@ -324,7 +240,8 @@ class OAuth1Provider(object):
         The timestamp will be expired in 60s, it would be a better design
         if you put timestamp and nonce object in a cache.
         """
-        self._noncesetter = f
+        c = self.context()
+        c._noncesetter = f
         return f
 
     def verifiergetter(self, f):
@@ -343,7 +260,8 @@ class OAuth1Provider(object):
                     return data
                 return data
         """
-        self._verifiergetter = f
+        c = self.context()
+        c._verifiergetter = f
         return f
 
     def verifiersetter(self, f):
@@ -365,8 +283,89 @@ class OAuth1Provider(object):
                 )
                 return data.save()
         """
-        self._verifiersetter = f
+        c = self.context()
+        c._verifiersetter = f
         return f
+
+    @lru_cache()
+    def server(self):
+        """
+        All in one endpoints. This property is created automaticly
+        if you have implemented all the getters and setters.
+        """
+        ctx = self.context()
+        cfg = ctx._config
+        _validator = ctx.get('_validator', None)
+        if _validator is not None:
+            return Server(_validator)
+
+        _clientgetter = ctx.get('_clientgetter', None)
+        _tokengetter = ctx.get('_tokengetter', None)
+        _tokensetter = ctx.get('_tokensetter', None)
+        _noncegetter = ctx.get('_noncegetter', None)
+        _noncesetter = ctx.get('_noncesetter', None)
+        _grantgetter = ctx.get('_grantgetter', None)
+        _grantsetter = ctx.get('_grantsetter', None)
+        _verifiergetter = ctx.get('_verifiergetter', None)
+        _verifiersetter = ctx.get('_verifiersetter', None)
+
+        if _clientgetter is not None and \
+            _tokengetter is not None and \
+            _tokensetter is not None and \
+            _noncegetter is not None and \
+            _noncesetter is not None and \
+            _grantgetter is not None and \
+            _grantsetter is not None and \
+            _verifiergetter is not None and \
+            _verifiersetter is not None:
+
+            validator = OAuth1RequestValidator(
+                _clientgetter,
+                _tokengetter,
+                _tokensetter,
+                _grantgetter,
+                _grantsetter,
+                _noncegetter,
+                _noncesetter,
+                _verifiergetter,
+                _verifiersetter,
+                config=cfg,
+            )
+
+            ctx._validator = validator
+            server = Server(validator)
+            testing = getattr(ctx.app, 'testing', False)
+            if testing:
+                # It will always be false, since the redirect_uri
+                # didn't match when doing the testing
+                server._check_signature = lambda *args, **kwargs: True
+            return server
+        raise RuntimeError(
+            'oauth1 provider plugin not bound to required getters and setters'
+        )
+
+    @lru_cache()
+    def error_uri(self):
+        """The error page URI.
+
+        When something turns error, it will redirect to this error page.
+        You can configure the error page URI with Flask config::
+
+            OAUTH1_PROVIDER_ERROR_URI = '/error'
+
+        You can also define the error page by a named endpoint::
+
+            OAUTH1_PROVIDER_ERROR_ENDPOINT = 'oauth.error'
+        """
+        ctx = self.context()
+        cfg = ctx._config
+        error_uri = cfg.get('OAUTH1_PROVIDER_ERROR_URI')
+        if error_uri:
+            return error_uri
+        error_endpoint = cfg.get('OAUTH1_PROVIDER_ERROR_ENDPOINT')
+        if error_endpoint:
+            return ctx.app.url_for(error_endpoint)
+        return '/oauth/errors'
 
     def authorize_handler(self, f):
         """Authorization handler decorator.
@@ -384,50 +383,40 @@ class OAuth1Provider(object):
                 confirm = request.form.get('confirm', 'no')
                 return confirm == 'yes'
         """
+        plug, reg = self
+        context = self.context()
         @wraps(f)
-        def decorated(*args, **kwargs):
+        async def decorated(request, *args, **kwargs):
+            nonlocal self, plug, reg, context
             if request.method == 'POST':
-                if not f(*args, **kwargs):
+                r = f(request, *args, context=context, **kwargs)
+                if isawaitable(r):
+                    r = await r
+                if not r:
                     uri = add_params_to_uri(
-                        self.error_uri, [('error', 'denied')]
+                        self.error_uri(), [('error', 'denied')]
                     )
                     return redirect(uri)
-                return self.confirm_authorization_request()
+                return plug.confirm_authorization_request(request, self)
 
-            server = self.server
+            server = self.server()
 
-            uri, http_method, body, headers = extract_params()
+            uri, http_method, body, headers = extract_params(request)
             try:
                 realms, credentials = server.get_realms_and_credentials(
                     uri, http_method=http_method, body=body, headers=headers
                 )
                 kwargs['realms'] = realms
                 kwargs.update(credentials)
-                return f(*args, **kwargs)
+                r = f(request, *args, context=context, **kwargs)
+                if isawaitable(r):
+                    r = await r
+                return r
             except errors.OAuth1Error as e:
-                return redirect(e.in_uri(self.error_uri))
+                return redirect(e.in_uri(self.error_uri()))
             except errors.InvalidClientError as e:
-                return redirect(e.in_uri(self.error_uri))
+                return redirect(e.in_uri(self.error_uri()))
         return decorated
-
-    def confirm_authorization_request(self):
-        """When consumer confirm the authrozation."""
-        server = self.server
-
-        uri, http_method, body, headers = extract_params()
-        try:
-            realms, credentials = server.get_realms_and_credentials(
-                uri, http_method=http_method, body=body, headers=headers
-            )
-            ret = server.create_authorization_response(
-                uri, http_method, body, headers, realms, credentials
-            )
-            log.debug('Authorization successful.')
-            return create_response(*ret)
-        except errors.OAuth1Error as e:
-            return redirect(e.in_uri(self.error_uri))
-        except errors.InvalidClientError as e:
-            return redirect(e.in_uri(self.error_uri))
 
     def request_token_handler(self, f):
         """Request token handler decorator.
@@ -443,11 +432,15 @@ class OAuth1Provider(object):
             def request_token():
                 return {}
         """
+        context = self.context()
         @wraps(f)
-        def decorated(*args, **kwargs):
-            server = self.server
-            uri, http_method, body, headers = extract_params()
-            credentials = f(*args, **kwargs)
+        async def decorated(request, *args, **kwargs):
+            nonlocal self, context
+            server = self.server()
+            uri, http_method, body, headers = extract_params(request)
+            credentials = f(request, *args, context=context, **kwargs)
+            if isawaitable(credentials):
+                credentials = await credentials
             try:
                 ret = server.create_request_token_response(
                     uri, http_method, body, headers, credentials)
@@ -470,11 +463,15 @@ class OAuth1Provider(object):
             def access_token():
                 return {}
         """
+        context = self.context()
         @wraps(f)
-        def decorated(*args, **kwargs):
-            server = self.server
-            uri, http_method, body, headers = extract_params()
-            credentials = f(*args, **kwargs)
+        async def decorated(request, *args, **kwargs):
+            nonlocal self, context
+            server = self.server()
+            uri, http_method, body, headers = extract_params(request)
+            credentials = f(request, *args, context=context, **kwargs)
+            if isawaitable(credentials):
+                credentials = await credentials
             try:
                 ret = server.create_access_token_response(
                     uri, http_method, body, headers, credentials)
@@ -486,37 +483,112 @@ class OAuth1Provider(object):
     def require_oauth(self, *realms, **kwargs):
         """Protect resource with specified scopes."""
         def wrapper(f):
+            nonlocal self
+            context = self.context()
             @wraps(f)
-            def decorated(*args, **kwargs):
-                for func in self._before_request_funcs:
-                    func()
+            async def decorated(request, *args, **kwargs):
+                nonlocal self, context
+                for func in context._before_request_funcs:
+                    r = func()
+                    if isawaitable(r):
+                        r = await r
+                request_context = context['request'][id(request)]
+                _oauth = request_context.get('oauth', None)
+                if _oauth:
+                    return f(request, *args, context=context, **kwargs)
 
-                if hasattr(request, 'oauth') and request.oauth:
-                    return f(*args, **kwargs)
-
-                server = self.server
-                uri, http_method, body, headers = extract_params()
+                server = self.server()
+                uri, http_method, body, headers = extract_params(request)
                 try:
                     valid, req = server.validate_protected_resource_request(
                         uri, http_method, body, headers, realms
                     )
                 except Exception as e:
-                    log.warn('Exception: %r', e)
+                    log.warning('Exception: %r', e)
                     e.urlencoded = urlencode([('error', 'unknown')])
                     e.status_code = 400
                     return _error_response(e)
-                for func in self._after_request_funcs:
-                    valid, req = func(valid, req)
+                for func in context._after_request_funcs:
+                    r = func(valid, req)
+                    if isawaitable(r):
+                        r = await r
+                    valid, req = r
 
                 if not valid:
-                    return abort(401)
+                    raise Unauthorized("Unauthorized")
                 # alias user for convenience
                 req.user = req.access_token.user
-                request.oauth = req
-                return f(*args, **kwargs)
+                request_context['oauth'] = req
+                # No need to await this
+                return f(request, *args, context=context, **kwargs)
             return decorated
         return wrapper
 
+
+class OAuth1Provider(SanicPlugin):
+    """Provide secure services using OAuth1.
+
+    Like many other Flask extensions, there are two usage modes. One is
+    binding the Flask app instance::
+
+        app = Flask(__name__)
+        oauth = OAuth1Provider(app)
+
+    The second possibility is to bind the Flask app later::
+
+        oauth = OAuth1Provider()
+
+        def create_app():
+            app = Flask(__name__)
+            oauth.init_app(app)
+            return app
+
+    And now you can protect the resource with realms::
+
+        @app.route('/api/user')
+        @oauth.require_oauth('email', 'username')
+        def user():
+            return jsonify(request.oauth.user)
+    """
+
+    __slots__ = tuple()
+
+    AssociatedTuple = OAuth1ProviderAssociated
+
+    def __init__(self, *args, **kwargs):
+        super(OAuth1Provider, self).__init__(*args, **kwargs)
+
+    def on_registered(self, context, *args, validator_class=None, **kwargs):
+        # this will need to be called more than once, for every app it is registered on.
+        app = context.app
+        context._config = {k: v for k, v in app.config.items()
+                           if k.startswith("OAUTH1_")}
+        context._before_request_funcs = []
+        context._after_request_funcs = []
+        app.extensions = getattr(app, 'extensions', {})
+        app.extensions['oauthlib.provider.oauth1'] = self
+
+    @classmethod
+    def confirm_authorization_request(cls, request, assoc):
+        """When consumer confirm the authorization."""
+        server = assoc.server()
+        uri, http_method, body, headers = extract_params(request)
+        try:
+            realms, credentials = server.get_realms_and_credentials(
+                uri, http_method=http_method, body=body, headers=headers
+            )
+            ret = server.create_authorization_response(
+                uri, http_method, body, headers, realms, credentials
+            )
+            log.debug('Authorization successful.')
+            return create_response(*ret)
+        except errors.OAuth1Error as e:
+            return redirect(e.in_uri(assoc.error_uri()))
+        except errors.InvalidClientError as e:
+            return redirect(e.in_uri(assoc.error_uri()))
+
+
+instance = oauth1provider = OAuth1Provider()
 
 class OAuth1RequestValidator(RequestValidator):
     """Subclass of Request Validator.
@@ -900,6 +972,6 @@ class OAuth1RequestValidator(RequestValidator):
 
 
 def _error_response(e):
-    res = make_response(e.urlencoded, e.status_code)
+    res = HTTPResponse(e.urlencoded, e.status_code)
     res.headers['Content-Type'] = 'application/x-www-form-urlencoded'
     return res

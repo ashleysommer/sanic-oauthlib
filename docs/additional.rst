@@ -13,7 +13,7 @@ before_request::
 
     @oauth.before_request
     def limit_client_request():
-        from flask_oauthlib.utils import extract_params
+        from sanic_oauthlib.utils import extract_params
         uri, http_method, body, headers = extract_params()
         request = oauth._create_request(uri, http_method, body, headers)
 
@@ -39,7 +39,7 @@ Bindings
 
 .. versionchanged:: 0.4
 
-.. module:: flask_oauthlib.contrib.oauth2
+.. module:: sanic_oauthlib.contrib.oauth2
 
 Bindings are objects you can use to configure flask-oauthlib for use with
 various data stores. They allow you to define the required getters and setters

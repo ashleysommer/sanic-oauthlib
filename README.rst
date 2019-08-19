@@ -1,85 +1,66 @@
-Flask-OAuthlib
+Sanic-OAuthlib
 ==============
 
 .. image:: https://img.shields.io/badge/donate-lepture-green.svg
    :target: https://lepture.com/donate
    :alt: Donate lepture
-.. image:: https://img.shields.io/pypi/wheel/flask-oauthlib.svg
-   :target: https://pypi.python.org/pypi/flask-OAuthlib/
+.. image:: https://img.shields.io/pypi/wheel/sanic-oauthlib.svg
+   :target: https://pypi.python.org/pypi/sanic-OAuthlib/
    :alt: Wheel Status
-.. image:: https://img.shields.io/pypi/v/flask-oauthlib.svg
-   :target: https://pypi.python.org/pypi/flask-oauthlib/
+.. image:: https://img.shields.io/pypi/v/sanic-oauthlib.svg
+   :target: https://pypi.python.org/pypi/sanic-oauthlib/
    :alt: Latest Version
-.. image:: https://travis-ci.org/lepture/flask-oauthlib.svg?branch=master
-   :target: https://travis-ci.org/lepture/flask-oauthlib
+.. image:: https://travis-ci.org/ashleysommer/sanic-oauthlib.svg?branch=master
+   :target: https://travis-ci.org/ashleysommer/sanic-oauthlib
    :alt: Travis CI Status
-.. image:: https://coveralls.io/repos/lepture/flask-oauthlib/badge.svg?branch=master
-   :target: https://coveralls.io/r/lepture/flask-oauthlib
+.. image:: https://coveralls.io/repos/ashleysommer/sanic-oauthlib/badge.svg?branch=master
+   :target: https://coveralls.io/r/ashleysommer/sanic-oauthlib
    :alt: Coverage Status
-
-Notice
-------
-
-**If you are a company, you should use https://github.com/lepture/authlib instead**.
 
 =====
 
-Flask-OAuthlib is an extension to Flask that allows you to interact with
+Sanic-OAuthlib is an extension to Sanic that allows you to interact with
 remote OAuth enabled applications. On the client site, it is a replacement
-for Flask-OAuth. But it does more than that, it also helps you to create
+for Sanic-OAuth. But it does more than that, it also helps you to create
 OAuth providers.
 
-Flask-OAuthlib relies on oauthlib_.
+Sanic-OAuthlib relies on oauthlib_.
 
 .. _oauthlib: https://github.com/idan/oauthlib
 
-Sponsored by
-------------
-
-If you want to quickly add secure authentication to Flask, feel free to
-check out Auth0's Python API SDK and free plan at `auth0.com/overview`_
-|auth0 image|
-
-.. _`auth0.com/overview`: https://auth0.com/overview?utm_source=GHsponsor&utm_medium=GHsponsor&utm_campaign=flask-oauthlib&utm_content=auth
-
-.. |auth0 image| image:: https://user-images.githubusercontent.com/290496/31718461-031a6710-b44b-11e7-80f8-7c5920c73b8f.png
-   :target: https://auth0.com/overview?utm_source=GHsponsor&utm_medium=GHsponsor&utm_campaign=flask-oauthlib&utm_content=auth
-   :alt: Coverage Status
-   :width: 18px
-   :height: 18px
 
 Features
 --------
 
 - Support for OAuth 1.0a, 1.0, 1.1, OAuth2 client
-- Friendly API (same as Flask-OAuth)
-- Direct integration with Flask
+- Friendly API (same as Sanic-OAuth)
+- Direct integration with Sanic
 - Basic support for remote method invocation of RESTful APIs
 - Support OAuth1 provider with HMAC and RSA signature
 - Support OAuth2 provider with Bearer token
 
 And request more features at `github issues`_.
 
-.. _`github issues`: https://github.com/lepture/flask-oauthlib/issues
+.. _`github issues`: https://github.com/ashleysommer/sanic-oauthlib/issues
 
 
 Security Reporting
 ------------------
 
-If you found security bugs which can not be public, send me email at `me@lepture.com`.
+If you found security bugs which can not be public, send me email at `ashleysommer@gmail.com`.
 Attachment with patch is welcome.
 
 
 Installation
 ------------
 
-Installing flask-oauthlib is simple with pip_::
+Installing sanic-oauthlib is simple with pip_::
 
-    $ pip install Flask-OAuthlib
+    $ pip install Sanic-OAuthlib
 
 If you don't have pip installed, try with easy_install::
 
-    $ easy_install Flask-OAuthlib
+    $ easy_install Sanic-OAuthlib
 
 .. _pip: http://www.pip-installer.org/
 
@@ -87,7 +68,7 @@ If you don't have pip installed, try with easy_install::
 Additional Notes
 ----------------
 
-We keep documentation at `flask-oauthlib@readthedocs`_.
+See the original documentation for Flask-OAuthlib here: `flask-oauthlib@readthedocs`_.
 
 .. _`flask-oauthlib@readthedocs`: https://flask-oauthlib.readthedocs.io
 

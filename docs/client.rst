@@ -8,7 +8,7 @@ Client
 The client part keeps the same API as `Flask-OAuth`_. The only changes are
 the imports::
 
-    from flask_oauthlib.client import OAuth
+    from sanic_oauthlib.client import OAuth
 
 .. attention:: If you are testing the provider and the client locally, do not
    make them start listening on the same address because they will
@@ -30,7 +30,7 @@ To connect to a remote application create a :class:`OAuth`
 object and register a remote application on it using
 the :meth:`~OAuth.remote_app` method::
 
-    from flask_oauthlib.client import OAuth
+    from sanic_oauthlib.client import OAuth
 
     oauth = OAuth()
     the_remote_app = oauth.remote_app('the remote app',
@@ -262,7 +262,7 @@ keep track of the config in the version control.
 Client of Flask-OAuthlib has a mechanism for you to lazy load your
 configuration from your Flask config object::
 
-    from flask_oauthlib.client import OAuth
+    from sanic_oauthlib.client import OAuth
 
     oauth = OAuth()
     twitter = oauth.remote_app(
@@ -297,7 +297,7 @@ Twitter can get consumer key and secret from the Flask instance now.
 You can put all the configuration in ``app.config`` if you like, which
 means you can do it this way::
 
-    from flask_oauthlib.client import OAuth
+    from sanic_oauthlib.client import OAuth
 
     oauth = OAuth()
     twitter = oauth.remote_app(
@@ -329,7 +329,7 @@ wrong. And sometime, it didn't return anything.
 
 We can force to parse the returned response in a specified content type::
 
-    from flask_oauthlib.client import OAuth
+    from sanic_oauthlib.client import OAuth
 
     oauth = OAuth()
 

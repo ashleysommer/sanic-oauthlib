@@ -3,7 +3,7 @@ import wsgiref.util
 from contextlib import contextmanager
 import mock
 import werkzeug.wrappers
-from flask_oauthlib.utils import extract_params
+from sanic_oauthlib.utils import extract_params
 from oauthlib.common import Request
 
 

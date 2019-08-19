@@ -10,7 +10,7 @@ OAuth2 Server
 An OAuth2 server concerns how to grant the authorization and how to protect
 the resource. Register an **OAuth** provider::
 
-    from flask_oauthlib.provider import OAuth2Provider
+    from sanic_oauthlib.provider import OAuth2Provider
 
     app = Flask(__name__)
     oauth = OAuth2Provider(app)

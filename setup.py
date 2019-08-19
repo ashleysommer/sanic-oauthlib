@@ -13,9 +13,9 @@ except ImportError:
     from distutils.core import setup
 
 from email.utils import parseaddr
-import flask_oauthlib
+import sanic_oauthlib
 
-author, author_email = parseaddr(flask_oauthlib.__author__)
+author, author_email = parseaddr(sanic_oauthlib.__author__)
 
 
 def fread(filename):
@@ -25,17 +25,17 @@ def fread(filename):
 
 setup(
     name='Flask-OAuthlib',
-    version=flask_oauthlib.__version__,
+    version=sanic_oauthlib.__version__,
     author=author,
     author_email=author_email,
-    url=flask_oauthlib.__homepage__,
+    url=sanic_oauthlib.__homepage__,
     packages=[
         "flask_oauthlib",
-        "flask_oauthlib.provider",
-        "flask_oauthlib.contrib",
-        "flask_oauthlib.contrib.client",
+        "sanic_oauthlib.provider",
+        "sanic_oauthlib.contrib",
+        "sanic_oauthlib.contrib.client",
     ],
-    description="OAuthlib for Flask",
+    description="OAuthlib for Sanic",
     zip_safe=False,
     include_package_data=True,
     platforms='any',

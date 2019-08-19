@@ -1,8 +1,8 @@
 import unittest
 
 from flask import Flask
-from flask_oauthlib.client import OAuth
-from flask_oauthlib.contrib.apps import douban, linkedin
+from sanic_oauthlib.client import OAuth
+from sanic_oauthlib.contrib.apps import douban, linkedin
 from nose.tools import assert_raises
 
 

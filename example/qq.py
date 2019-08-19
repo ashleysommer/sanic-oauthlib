@@ -2,7 +2,7 @@
 import os
 import json
 from flask import Flask, redirect, url_for, session, request, jsonify, Markup
-from flask_oauthlib.client import OAuth
+from sanic_oauthlib.client import OAuth
 
 # get yours at http://connect.qq.com
 QQ_APP_ID = os.getenv('QQ_APP_ID', '101187283')

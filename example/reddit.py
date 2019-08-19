@@ -1,6 +1,6 @@
 from flask import Flask, redirect, url_for, session, request
-from flask_oauthlib.client import OAuth, OAuthException, OAuthRemoteApp, parse_response
-from flask_oauthlib.utils import to_bytes
+from sanic_oauthlib.client import OAuth, OAuthException, OAuthRemoteApp, parse_response
+from sanic_oauthlib.utils import to_bytes
 import uuid
 import base64
 import time

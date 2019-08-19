@@ -1,5 +1,5 @@
 from flask import Flask, redirect, url_for, session, request
-from flask_oauthlib.client import OAuth, OAuthException
+from sanic_oauthlib.client import OAuth, OAuthException
 
 
 FACEBOOK_APP_ID = '188477911223606'

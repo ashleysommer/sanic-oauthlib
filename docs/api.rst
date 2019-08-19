@@ -9,7 +9,7 @@ This part of the documentation covers the interface of Flask-OAuthlib.
 Client Reference
 ----------------
 
-.. module:: flask_oauthlib.client
+.. module:: sanic_oauthlib.client
 
 .. autoclass:: OAuth
    :members:
@@ -27,7 +27,7 @@ Client Reference
 OAuth1 Provider
 ---------------
 
-.. module:: flask_oauthlib.provider
+.. module:: sanic_oauthlib.provider
 
 .. autoclass:: OAuth1Provider
    :members:
@@ -51,14 +51,14 @@ Contrib Reference
 
 Here are APIs provided by contributors.
 
-.. module:: flask_oauthlib.contrib.oauth2
+.. module:: sanic_oauthlib.contrib.oauth2
 
 .. autofunction:: bind_sqlalchemy
 
 .. autofunction:: bind_cache_grant
 
 
-.. automodule:: flask_oauthlib.contrib.apps
+.. automodule:: sanic_oauthlib.contrib.apps
 
    .. autofunction:: douban
    .. autofunction:: dropbox

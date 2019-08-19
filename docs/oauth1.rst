@@ -9,7 +9,7 @@ This part of documentation covers the tutorial of setting up an OAuth1
 provider. An OAuth1 server concerns how to grant the authorization and
 how to protect the resource. Register an **OAuth** provider::
 
-    from flask_oauthlib.provider import OAuth1Provider
+    from sanic_oauthlib.provider import OAuth1Provider
 
     app = Flask(__name__)
     oauth = OAuth1Provider(app)

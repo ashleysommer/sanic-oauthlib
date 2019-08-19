@@ -1,5 +1,5 @@
 """
-    flask_oauthlib.contrib.client
+    sanic_oauthlib.contrib.client
     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
     An experiment client with requests-oauthlib as backend.

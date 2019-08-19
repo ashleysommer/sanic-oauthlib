@@ -1,6 +1,6 @@
 # coding: utf-8
 """
-    flask_oauthlib.contrib
+    sanic_oauthlib.contrib
     ~~~~~~~~~~~~~~~~~~~~~~
 
     Contributions for Flask OAuthlib.

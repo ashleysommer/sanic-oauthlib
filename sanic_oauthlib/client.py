@@ -1,9 +1,9 @@
 # coding: utf-8
 """
-    flask_oauthlib.client
+    sanic_oauthlib.client
     ~~~~~~~~~~~~~~~~~~~~~
 
-    Implemnts OAuth1 and OAuth2 support for Flask.
+    Implemnts OAuth1 and OAuth2 support for Sanic.
 
     :copyright: (c) 2013 - 2014 by Hsiaoming Yang.
 """
@@ -13,7 +13,7 @@ import oauthlib.oauth1
 import oauthlib.oauth2
 from copy import copy
 from functools import wraps
-from oauthlib.common import to_unicode, PY3, add_params_to_uri
+from oauthlib.common import to_unicode, add_params_to_uri
 from flask import request, redirect, json, session, current_app
 from werkzeug import url_quote, url_decode, url_encode
 from werkzeug import parse_options_header, cached_property
@@ -24,13 +24,8 @@ try:
 except ImportError:
     from urllib import request as http
     from urllib.parse import urljoin
-log = logging.getLogger('flask_oauthlib')
+log = logging.getLogger('sanic_oauthlib')
 
-
-if PY3:
-    string_types = (str,)
-else:
-    string_types = (str, unicode)
 
 
 __all__ = ('OAuth', 'OAuthRemoteApp', 'OAuthResponse', 'OAuthException')
@@ -384,7 +379,7 @@ class OAuthRemoteApp(object):
             if token:
                 if isinstance(token, (tuple, list)):
                     token = {'access_token': token[0]}
-                elif isinstance(token, string_types):
+                elif isinstance(token, str):
                     token = {'access_token': token}
             client = oauthlib.oauth2.WebApplicationClient(
                 self.consumer_key, token=token

@@ -1,6 +1,6 @@
 # coding: utf-8
 """
-    flask_oauthlib.contrib.oauth2
+    sanic_oauthlib.contrib.oauth2
     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
     SQLAlchemy and Grant-Caching for OAuth2 provider.
@@ -16,7 +16,7 @@ from .cache import Cache
 __all__ = ('bind_cache_grant', 'bind_sqlalchemy')
 
 
-log = logging.getLogger('flask_oauthlib')
+log = logging.getLogger('sanic_oauthlib')
 
 
 class Grant(object):

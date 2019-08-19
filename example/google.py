@@ -7,7 +7,7 @@
     GitHub: https://github.com/rochacbruno
 """
 from flask import Flask, redirect, url_for, session, request, jsonify
-from flask_oauthlib.client import OAuth
+from sanic_oauthlib.client import OAuth
 
 
 app = Flask(__name__)

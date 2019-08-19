@@ -1,5 +1,5 @@
 """
-    flask_oauthlib.contrib.apps
+    sanic_oauthlib.contrib.apps
     ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
     The bundle of remote app factories for famous third platforms.
@@ -7,8 +7,8 @@
     Usage::
 
         from flask import Flask
-        from flask_oauthlib.client import OAuth
-        from flask_oauthlib.contrib.apps import github
+        from sanic_oauthlib.client import OAuth
+        from sanic_oauthlib.contrib.apps import github
 
         app = Flask(__name__)
         oauth = OAuth(app)

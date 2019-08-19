@@ -1,5 +1,5 @@
 from flask import Flask, redirect, url_for, session, request, jsonify, abort
-from flask_oauthlib.client import OAuth
+from sanic_oauthlib.client import OAuth
 
 
 def create_client(app):

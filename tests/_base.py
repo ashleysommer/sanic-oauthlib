@@ -5,7 +5,7 @@ import os
 import sys
 import tempfile
 import unittest
-from flask_oauthlib.client import prepare_request
+from sanic_oauthlib.client import prepare_request
 try:
     from urlparse import urlparse
 except ImportError:

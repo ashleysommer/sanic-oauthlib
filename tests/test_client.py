@@ -1,8 +1,8 @@
 from flask import Flask
 from nose.tools import raises
-from flask_oauthlib.client import encode_request_data
-from flask_oauthlib.client import OAuthRemoteApp, OAuth
-from flask_oauthlib.client import parse_response
+from sanic_oauthlib.client import encode_request_data
+from sanic_oauthlib.client import OAuthRemoteApp, OAuth
+from sanic_oauthlib.client import parse_response
 from oauthlib.common import PY3
 
 try:

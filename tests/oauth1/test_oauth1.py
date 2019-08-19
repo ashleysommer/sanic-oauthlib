@@ -4,7 +4,7 @@ import time
 from mock import MagicMock
 from nose.tools import raises
 from flask import Flask
-from flask_oauthlib.client import OAuth, OAuthException
+from sanic_oauthlib.client import OAuth, OAuthException
 from .server import create_server, db
 from .client import create_client
 from .._base import BaseSuite, clean_url

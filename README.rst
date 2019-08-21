@@ -1,9 +1,6 @@
 Sanic-OAuthlib
 ==============
 
-.. image:: https://img.shields.io/badge/donate-lepture-green.svg
-   :target: https://lepture.com/donate
-   :alt: Donate lepture
 .. image:: https://img.shields.io/pypi/wheel/sanic-oauthlib.svg
    :target: https://pypi.python.org/pypi/sanic-OAuthlib/
    :alt: Wheel Status
@@ -24,6 +21,9 @@ remote OAuth enabled applications. On the client site, it is a replacement
 for Sanic-OAuth. But it does more than that, it also helps you to create
 OAuth providers.
 
+Sanic-OAuthlib is a fork of Flask-OAuthlib, ported to sanic using the
+SanicPluginsFramework.
+
 Sanic-OAuthlib relies on oauthlib_.
 
 .. _oauthlib: https://github.com/idan/oauthlib
@@ -31,10 +31,11 @@ Sanic-OAuthlib relies on oauthlib_.
 
 Features
 --------
+(These features are directly ported from Flask-OAuthLib)
 
 - Support for OAuth 1.0a, 1.0, 1.1, OAuth2 client
 - Friendly API (same as Sanic-OAuth)
-- Direct integration with Sanic
+- Direct integration with Sanic using SanicPluginsFramework
 - Basic support for remote method invocation of RESTful APIs
 - Support OAuth1 provider with HMAC and RSA signature
 - Support OAuth2 provider with Bearer token

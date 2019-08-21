@@ -3,5 +3,6 @@ sanic-plugins-framework>=0.8.2
 sanic_session_spf
 sanic_jinja2_spf
 oauthlib==2.0.6
-#requests-oauthlib==0.8.0
+aiohttp
+
 

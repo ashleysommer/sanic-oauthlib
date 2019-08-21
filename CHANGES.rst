@@ -1,5 +1,27 @@
-Changelog
-=========
+Sanic-OAuthLib Changelog
+========================
+
+Version 0.1.0
+-------------
+
+Released on 22 August, 2019
+
+- First attempt at port to sanic, using Sanic Plugins Framework
+- Remove some contrib apps, they
+- Changed requirements
+
+  - Replace Flask with Sanic
+  - Rely on Sanic-Plugins-Framework
+  - Now using pystest rather than Nose
+  - Using Asynctest rather then unittest framework
+  - Use built-in Asynctest mocks, remove mock requirement
+  - Use Aiohttp wherever possible, remove requirement for requests
+- Fixed all of the main basic-functionality tests so they pass on Sanic
+
+
+
+Flask-OAuthLib Changelog
+========================
 
 Here you can see the full list of changes between each Flask-OAuthlib release.
 
@@ -74,7 +96,7 @@ Version 0.8.0
 
 Released on Dec 3, 2014
 
-.. module:: flask_oauthlib.provider.oauth2
+.. module:: sanic_oauthlib.provider.oauth2
 
 - New feature for generating refresh tokens
 - Add new function :meth:`OAuth2Provider.verify_request` for non vanilla Flask projects
@@ -86,7 +108,7 @@ Version 0.7.0
 
 Released on Aug 20, 2014
 
-.. module:: flask_oauthlib.client
+.. module:: sanic_oauthlib.client
 
 - Deprecated :meth:`OAuthRemoteApp.authorized_handler` in favor of
   :meth:`OAuthRemoteApp.authorized_response`.

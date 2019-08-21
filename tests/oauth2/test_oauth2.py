@@ -1,8 +1,12 @@
 # coding: utf-8
-
+import asyncio
 import json
-from flask import Flask
-from mock import MagicMock
+
+from asynctest import CoroutineMock
+from sanic import Sanic
+from pytest_sanic.utils import TestClient as SanicTestClient
+from spf import SanicPluginsFramework
+
 from .server import (
     create_server,
     db,
@@ -26,26 +30,32 @@ class OAuthSuite(BaseSuite):
                                   'implement this method.')
 
     def create_app(self):
-        app = Flask(__name__)
-        app.debug = True
-        app.testing = True
-        app.secret_key = 'development'
-        return app
+        client_app = Sanic(__name__)
+        server_app = Sanic(__name__)
+        spf1 = SanicPluginsFramework(client_app)
+        spf2 = SanicPluginsFramework(server_app)
+        return server_app, client_app
 
-    def setup_app(self, app):
-        oauth = self.create_oauth_provider(app)
-        create_server(app, oauth)
-        client = create_client(app)
-        client.http_request = MagicMock(
-            side_effect=self.patch_request(app)
+    async def setup_app(self, server_app, client_app):
+        oauth = self.create_oauth_provider(server_app)
+        loop = asyncio.get_event_loop_policy().get_event_loop()
+        self.server_client = SanicTestClient(server_app, loop)
+        create_server(server_app, oauth)
+        self.oauth_client = create_client(client_app)
+        self.oauth_client.http_request = CoroutineMock(
+            side_effect=self.patch_request(self.server_client)
         )
-        self.oauth_client = client
-        return app
+        await self.server_client.start_server()
+        return server_app
+
+    async def tearDown(self):
+        await self.server_client.close()
+        await super(OAuthSuite, self).tearDown()
 
 
 authorize_url = (
-    '/oauth/authorize?response_type=code&client_id=dev'
-    '&redirect_uri=http%3A%2F%2Flocalhost%3A8000%2Fauthorized&scope=email'
+    '/oauth2/authorize?response_type=code&client_id=dev'
+    '&redirect_uri=http%3A%2F%2F127.0.0.1%3A5000%2Fauthorized&scope=email'
 )
 
 
@@ -57,126 +67,155 @@ class TestWebAuth(OAuthSuite):
     def create_oauth_provider(self, app):
         return default_provider(app)
 
-    def test_login(self):
-        rv = self.client.get('/login')
-        assert 'response_type=code' in rv.location
+    async def test_login(self):
+        rv = await self.client.get('/login', allow_redirects=False)
+        location = rv.headers.get('Location')
+        assert 'response_type=code' in location
 
-    def test_oauth_authorize_invalid_url(self):
-        rv = self.client.get('/oauth/authorize')
-        assert 'Missing+client_id+parameter.' in rv.location
+    async def test_oauth_authorize_invalid_url(self):
+        resp, content = await self.oauth_client.http_request('/oauth2/authorize', allow_redirects=False)
+        location = resp.headers.get('Location')
+        assert 'Missing+client_id+parameter.' in location
 
-    def test_oauth_authorize_valid_url(self):
-        rv = self.client.get(authorize_url)
-        assert b'</form>' in rv.data
+    async def test_oauth_authorize_valid_url(self):
+        resp, content = await self.oauth_client.http_request(authorize_url)
+        assert '</form>' in content
 
-        rv = self.client.post(authorize_url, data=dict(
+        resp, content = await self.oauth_client.http_request(authorize_url, data=dict(
             confirm='no'
-        ))
-        assert 'access_denied' in rv.location
+        ), method='post', allow_redirects=False)
+        location = resp.headers.get('Location')
+        assert 'access_denied' in location
 
-        rv = self.client.post(authorize_url, data=dict(
+        resp, content = await self.oauth_client.http_request(authorize_url, data=dict(
             confirm='yes'
-        ))
+        ), method='post', allow_redirects=False)
         # success
-        assert 'code=' in rv.location
-        assert 'state' not in rv.location
+        location = resp.headers.get('Location')
+        assert 'code=' in location
+        assert 'state' not in location
 
         # test state on access denied
         # According to RFC 6749, state should be preserved on error response if it's present in the client request.
         # Reference: https://tools.ietf.org/html/rfc6749#section-4.1.2
-        rv = self.client.post(authorize_url + '&state=foo', data=dict(
+        resp, content = await self.oauth_client.http_request(authorize_url + '&state=foo', data=dict(
             confirm='no'
-        ))
-        assert 'error=access_denied' in rv.location
-        assert 'state=foo' in rv.location
+        ), method='post', allow_redirects=False)
+        location = resp.headers.get('Location')
+        assert 'error=access_denied' in location
+        assert 'state=foo' in location
 
         # test state on success
-        rv = self.client.post(authorize_url + '&state=foo', data=dict(
+        resp, content = await self.oauth_client.http_request(authorize_url + '&state=foo', data=dict(
             confirm='yes'
-        ))
-        assert 'code=' in rv.location
-        assert 'state=foo' in rv.location
+        ), method='post', allow_redirects=False)
+        location = resp.headers.get('Location')
+        assert 'code=' in location
+        assert 'state=foo' in location
 
-    def test_http_head_oauth_authorize_valid_url(self):
-        rv = self.client.head(authorize_url)
-        assert rv.headers['X-Client-ID'] == 'dev'
+    async def test_http_head_oauth_authorize_valid_url(self):
+        resp, content = await self.oauth_client.http_request(authorize_url, method='head', allow_redirects=False)
+        assert resp.headers['X-Client-ID'] == 'dev'
 
-    def test_get_access_token(self):
-        rv = self.client.post(authorize_url, data={'confirm': 'yes'})
-        rv = self.client.get(clean_url(rv.location))
-        assert b'access_token' in rv.data
+    async def test_get_access_token(self):
+        resp, content = await self.oauth_client.http_request(authorize_url,
+            data={'confirm': 'yes'}, method='post', allow_redirects=False)
+        location = resp.headers.get('Location')
+        rv = await self.client.get(clean_url(location))
+        await rv.read()
+        assert b'access_token' in rv._body
 
-    def test_full_flow(self):
-        rv = self.client.post(authorize_url, data={'confirm': 'yes'})
-        rv = self.client.get(clean_url(rv.location))
-        assert b'access_token' in rv.data
+    async def test_full_flow(self):
+        resp, content = await self.oauth_client.http_request(authorize_url,
+            data={'confirm': 'yes'}, method='post', allow_redirects=False)
+        location = resp.headers.get('Location')
+        rv = await self.client.get(clean_url(location))
+        await rv.read()
+        assert b'access_token' in rv._body
 
-        rv = self.client.get('/')
-        assert b'username' in rv.data
+        rv = await self.client.get('/')
+        await rv.read()
+        assert b'username' in rv._body
 
-        rv = self.client.get('/address')
-        assert rv.status_code == 401
-        assert b'message' in rv.data
+        rv = await self.client.get('/address')
+        assert rv.status == 401
+        await rv.read()
+        assert b'message' in rv._body
 
-        rv = self.client.get('/method/post')
-        assert b'POST' in rv.data
+        rv = await self.client.get('/method/post')
+        await rv.read()
+        assert b'POST' in rv._body
 
-        rv = self.client.get('/method/put')
-        assert b'PUT' in rv.data
+        rv = await self.client.get('/method/put')
+        await rv.read()
+        assert b'PUT' in rv._body
 
-        rv = self.client.get('/method/delete')
-        assert b'DELETE' in rv.data
+        rv = await self.client.get('/method/delete')
+        await rv.read()
+        assert b'DELETE' in rv._body
 
-    def test_no_bear_token(self):
+    async def test_no_bear_token(self):
         @self.oauth_client.tokengetter
         def get_oauth_token():
             return 'foo', ''
 
-        rv = self.client.get('/method/put')
-        assert b'token not found' in rv.data
+        rv = await self.client.get('/method/put')
+        _ = await rv.read()
+        assert b'token not found' in rv._body
 
-    def test_expires_bear_token(self):
+    async def test_expires_bear_token(self):
         @self.oauth_client.tokengetter
         def get_oauth_token():
             return 'expired', ''
 
-        rv = self.client.get('/method/put')
-        assert b'token is expired' in rv.data
+        rv = await self.client.get('/method/put')
+        _ = await rv.read()
+        assert b'token is expired' in rv._body
 
-    def test_never_expiring_bear_token(self):
+    async def test_never_expiring_bear_token(self):
         @self.oauth_client.tokengetter
         def get_oauth_token():
             return 'never_expire', ''
 
-        rv = self.client.get('/method/put')
-        assert rv.status_code == 200
+        rv = await self.client.get('/method/put')
+        assert rv.status == 200
 
-    def test_get_client(self):
-        rv = self.client.post(authorize_url, data={'confirm': 'yes'})
-        rv = self.client.get(clean_url(rv.location))
-        rv = self.client.get("/client")
-        assert b'dev' in rv.data
+    async def test_get_client(self):
+        resp, content = await self.oauth_client.http_request(authorize_url,
+            data={'confirm': 'yes'}, method='post', allow_redirects=False)
+        location = resp.headers.get('Location')
+        rv = await self.client.get(clean_url(location))
+        await rv.read()
+        rv = await self.client.get("/client")
+        await rv.read()
+        assert b'dev' in rv._body
 
-    def test_invalid_response_type(self):
+    async def test_invalid_response_type(self):
         authorize_url = (
-            '/oauth/authorize?response_type=invalid&client_id=dev'
-            '&redirect_uri=http%3A%2F%2Flocalhost%3A8000%2Fauthorized'
+            '/oauth2/authorize?response_type=invalid&client_id=dev'
+            '&redirect_uri=http%3A%2F%2F127.0.0.1%3A5000%2Fauthorized'
             '&scope=email'
         )
-        rv = self.client.post(authorize_url, data={'confirm': 'yes'})
-        rv = self.client.get(clean_url(rv.location))
-        assert b'error' in rv.data
+        resp, content = await self.oauth_client.http_request(authorize_url,
+            data={'confirm': 'yes'}, method='post', allow_redirects=False)
+        location = resp.headers.get('Location')
+        rv = await self.client.get(clean_url(location))
+        await rv.read()
+        assert b'error' in rv._body
 
-    def test_invalid_scope(self):
+    async def test_invalid_scope(self):
         authorize_url = (
-            '/oauth/authorize?response_type=code&client_id=dev'
-            '&redirect_uri=http%3A%2F%2Flocalhost%3A8000%2Fauthorized'
+            '/oauth2/authorize?response_type=code&client_id=dev'
+            '&redirect_uri=http%3A%2F%2F127.0.0.1%3A5000%2Fauthorized'
             '&scope=invalid'
         )
-        rv = self.client.get(authorize_url)
-        rv = self.client.get(clean_url(rv.location))
-        assert b'error' in rv.data
-        assert b'invalid_scope' in rv.data
+        resp, content = await self.oauth_client.http_request(authorize_url,
+            data={'confirm': 'yes'}, method='post', allow_redirects=False)
+        location = resp.headers.get('Location')
+        rv = await self.client.get(clean_url(location))
+        await rv.read()
+        assert b'error' in rv._body
+        assert b'invalid_scope' in rv._body
 
 
 class TestWebAuthCached(TestWebAuth):
@@ -217,7 +256,7 @@ class TestRefreshToken(OAuthSuite):
 
     def test_refresh_token_in_authorization_code(self):
         rv = self.client.post(authorize_url, data={'confirm': 'yes'})
-        rv = self.client.get(clean_url(rv.location))
+        rv = self.client.get(clean_url(location))
         data = json.loads(u(rv.data))
 
         args = (data.get('scope').replace(' ', '+'),
@@ -366,7 +405,7 @@ class TestTokenGenerator(OAuthSuite):
 
     def test_get_access_token(self):
         rv = self.client.post(authorize_url, data={'confirm': 'yes'})
-        rv = self.client.get(clean_url(rv.location))
+        rv = self.client.get(clean_url(location))
         data = json.loads(u(rv.data))
         assert data['access_token'] == 'foobar'
         assert data['refresh_token'] == 'foobar'
@@ -388,7 +427,7 @@ class TestRefreshTokenGenerator(OAuthSuite):
 
     def test_get_access_token(self):
         rv = self.client.post(authorize_url, data={'confirm': 'yes'})
-        rv = self.client.get(clean_url(rv.location))
+        rv = self.client.get(clean_url(location))
         data = json.loads(u(rv.data))
         assert data['access_token'] == 'foobar'
         assert data['refresh_token'] == 'abracadabra'

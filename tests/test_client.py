@@ -1,19 +1,15 @@
-from flask import Flask
-from nose.tools import raises
+from pytest import raises
+from sanic import Sanic
+from spf import SanicPluginsFramework
+
 from sanic_oauthlib.client import encode_request_data
-from sanic_oauthlib.client import OAuthRemoteApp, OAuth
+from sanic_oauthlib.client import OAuthRemoteApp, oauthclient
 from sanic_oauthlib.client import parse_response
 from oauthlib.common import PY3
+from asynctest import patch
 
-try:
-    import urllib2 as http
-    http_urlopen = 'urllib2.urlopen'
-except ImportError:
-    from urllib import request as http
-    http_urlopen = 'urllib.request.urlopen'
-
-from mock import patch
-
+from urllib import request as http
+http_urlopen = 'urllib.request.urlopen'
 
 class Response(object):
     def __init__(self, content, headers=None):
@@ -49,8 +45,9 @@ def test_encode_request_data():
 
 
 def test_app():
-    app = Flask(__name__)
-    oauth = OAuth(app)
+    app = Sanic(__name__)
+    spf = SanicPluginsFramework(app)
+    oauth = spf.register_plugin(oauthclient)
     remote = oauth.remote_app(
         'dev',
         consumer_key='dev',
@@ -62,7 +59,8 @@ def test_app():
         access_token_url='http://127.0.0.1:5000/oauth/token',
         authorize_url='http://127.0.0.1:5000/oauth/authorize'
     )
-    client = app.extensions['oauthlib.client']
+    plugin = app.extensions['oauthlib.client']
+    client = spf.get_plugin_assoc(plugin)
     assert client.dev.name == 'dev'
 
 
@@ -76,32 +74,34 @@ def test_parse_xml():
     parse_response(resp, resp.read())
 
 
-@raises(AttributeError)
+
 def test_raise_app():
-    app = Flask(__name__)
-    oauth = OAuth(app)
-    client = app.extensions['oauthlib.client']
-    assert client.demo.name == 'dev'
+    with raises(AttributeError):
+        app = Sanic(__name__)
+        spf = SanicPluginsFramework(app)
+        oauth = spf.register_plugin(oauthclient)
+        plugin = app.extensions['oauthlib.client']
+        client = spf.get_plugin_assoc(plugin)
+        assert client.demo.name == 'dev'
 
 
 class TestOAuthRemoteApp(object):
-    @raises(TypeError)
+
     def test_raise_init(self):
-        OAuthRemoteApp('oauth', 'twitter')
+        with raises(TypeError):
+            OAuthRemoteApp('oauth', 'twitter')
 
     def test_not_raise_init(self):
         OAuthRemoteApp('oauth', 'twitter', app_key='foo')
 
     def test_lazy_load(self):
-        oauth = OAuth()
-        twitter = oauth.remote_app(
+        twitter = oauthclient.remote_app(
             'twitter',
             base_url='https://api.twitter.com/1/',
             app_key='twitter'
         )
         assert twitter.base_url == 'https://api.twitter.com/1/'
-
-        app = Flask(__name__)
+        app = Sanic(__name__)
         app.config.update({
             'twitter': dict(
                 request_token_params={'realms': 'email'},
@@ -112,7 +112,8 @@ class TestOAuthRemoteApp(object):
                 authorize_url='auth url',
             )
         })
-        oauth.init_app(app)
+        spf = SanicPluginsFramework(app)
+        spf.register_plugin(oauthclient)
         assert twitter.consumer_key == 'twitter key'
         assert twitter.consumer_secret == 'twitter secret'
         assert twitter.request_token_url == 'request url'
@@ -122,17 +123,17 @@ class TestOAuthRemoteApp(object):
         assert 'realms' in twitter.request_token_params
 
     def test_lazy_load_with_plain_text_config(self):
-        oauth = OAuth()
-        twitter = oauth.remote_app('twitter', app_key='TWITTER')
+        twitter = oauthclient.remote_app('twitter', app_key='TWITTER')
 
-        app = Flask(__name__)
+        app = Sanic(__name__)
         app.config['TWITTER_CONSUMER_KEY'] = 'twitter key'
         app.config['TWITTER_CONSUMER_SECRET'] = 'twitter secret'
         app.config['TWITTER_REQUEST_TOKEN_URL'] = 'request url'
         app.config['TWITTER_ACCESS_TOKEN_URL'] = 'token url'
         app.config['TWITTER_AUTHORIZE_URL'] = 'auth url'
 
-        oauth.init_app(app)
+        spf = SanicPluginsFramework(app)
+        spf.register_plugin(oauthclient)
 
         assert twitter.consumer_key == 'twitter key'
         assert twitter.consumer_secret == 'twitter secret'
@@ -140,33 +141,33 @@ class TestOAuthRemoteApp(object):
         assert twitter.access_token_url == 'token url'
         assert twitter.authorize_url == 'auth url'
 
-    @patch(http_urlopen)
-    def test_http_request(self, urlopen):
+    @patch('aiohttp.client.ClientSession.request')
+    async def test_http_request(self, urlopen):
         urlopen.return_value = Response(
             b'{"foo": "bar"}', headers={'status-code': 200}
         )
 
-        resp, content = OAuthRemoteApp.http_request('http://example.com')
-        assert resp.code == 200
-        assert b'foo' in content
+        resp, content = await OAuthRemoteApp.http_request('http://example.com')
+        assert resp.status == 200
+        assert 'foo' in content
 
-        resp, content = OAuthRemoteApp.http_request(
+        resp, content = await OAuthRemoteApp.http_request(
             'http://example.com/',
             method='GET',
-            data={'wd': 'flask-oauthlib'}
+            data={'wd': 'sanic-oauthlib'}
         )
-        assert resp.code == 200
-        assert b'foo' in content
+        assert resp.status == 200
+        assert 'foo' in content
 
-        resp, content = OAuthRemoteApp.http_request(
+        resp, content = await OAuthRemoteApp.http_request(
             'http://example.com/',
-            data={'wd': 'flask-oauthlib'}
+            data={'wd': 'sanic-oauthlib'}
         )
-        assert resp.code == 200
-        assert b'foo' in content
+        assert resp.status == 200
+        assert 'foo' in content
 
-    @patch(http_urlopen)
-    def test_raise_http_request(self, urlopen):
+    @patch('aiohttp.client.ClientSession.request')
+    async def test_raise_http_request(self, urlopen):
         error = http.HTTPError(
             'http://example.com/', 404, 'Not Found', None, None
         )
@@ -182,22 +183,17 @@ class TestOAuthRemoteApp(object):
         error.file = _Faker()
 
         urlopen.side_effect = error
-        resp, content = OAuthRemoteApp.http_request('http://example.com')
-        assert resp.code == 404
-        assert b'o' in content
+        resp, content = await OAuthRemoteApp.http_request('http://example.com')
+        assert resp.status == 404
+        assert 'o' in content
 
     def test_token_types(self):
-        oauth = OAuth()
+        oauth = oauthclient
         remote = oauth.remote_app('remote',
                                   consumer_key='remote key',
                                   consumer_secret='remote secret')
 
         client_token = {'access_token': 'access token'}
-
-        if not PY3:
-            unicode_token = u'access token'
-            client = remote.make_client(token=unicode_token)
-            assert client.token == client_token
 
         str_token = 'access token'
         client = remote.make_client(token=str_token)

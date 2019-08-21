@@ -1,69 +1,79 @@
-from flask import Flask, redirect, url_for, session, request, jsonify, abort
-from sanic_oauthlib.client import OAuth
+from inspect import isawaitable
 
+from sanic import Sanic
+from sanic.response import redirect, json, text
+from sanic.exceptions import SanicException
+from spf import SanicPluginsFramework
+from sanic_oauthlib.client import oauthclient
 
 def create_client(app):
-    oauth = OAuth(app)
+    spf = SanicPluginsFramework(app)
+    oauth = spf.register_plugin(oauthclient)
+
+    session = {}
+    #TODO: make a better client session
 
     remote = oauth.remote_app(
         'dev',
         consumer_key='dev',
-        consumer_secret='dev',
+        consumer_secret='devsecret',
         request_token_params={'scope': 'email'},
-        base_url='http://127.0.0.1:5000/api/',
+        base_url='http://127.0.0.1:5001/api/',
         request_token_url=None,
         access_token_method='POST',
-        access_token_url='http://127.0.0.1:5000/oauth/token',
-        authorize_url='http://127.0.0.1:5000/oauth/authorize'
+        access_token_url='http://127.0.0.1:5001/oauth2/token',
+        authorize_url='http://127.0.0.1:5001/oauth2/authorize'
     )
 
     @app.route('/')
-    def index():
+    async def index(request):
         if 'dev_token' in session:
-            ret = remote.get('email')
-            return jsonify(ret.data)
-        return redirect(url_for('login'))
+            ret = await remote.get('email')
+            return json(ret.data)
+        return redirect(app.url_for('login'))
 
     @app.route('/login')
-    def login():
-        return remote.authorize(callback=url_for('authorized', _external=True))
+    async def login(request):
+        return await remote.authorize(request, callback=app.url_for('authorized', _external=True, _scheme='http'))
 
     @app.route('/logout')
-    def logout():
+    def logout(request):
         session.pop('dev_token', None)
-        return redirect(url_for('index'))
+        return redirect(app.url_for('index'))
 
     @app.route('/authorized')
-    def authorized():
-        resp = remote.authorized_response()
+    async def authorized(request):
+        resp = await remote.authorized_response(request)
         if resp is None:
-            return 'Access denied: error=%s' % (
+            return text('Access denied: error=%s' % (
                 request.args['error']
-            )
+            ))
         if isinstance(resp, dict) and 'access_token' in resp:
             session['dev_token'] = (resp['access_token'], '')
-            return jsonify(resp)
-        return str(resp)
+            return json(resp)
+        return text(str(resp))
 
     @app.route('/client')
-    def client_method():
-        ret = remote.get("client")
+    async def client_method(request):
+        ret = await remote.get("client")
         if ret.status not in (200, 201):
-            return abort(ret.status)
-        return ret.raw_data
+            raise SanicException(ret.data, status_code=ret.status)
+        return text(ret.raw_data)
 
     @app.route('/address')
-    def address():
-        ret = remote.get('address/hangzhou')
+    async def address(request):
+        ret = await remote.get('address/hangzhou')
         if ret.status not in (200, 201):
-            return ret.raw_data, ret.status
-        return ret.raw_data
+            raise SanicException(ret.raw_data, status_code=ret.status)
+        return text(ret.raw_data)
 
     @app.route('/method/<name>')
-    def method(name):
+    async def method(request, name):
         func = getattr(remote, name)
         ret = func('method')
-        return ret.raw_data
+        if isawaitable(ret):
+            ret = await ret
+        return text(ret.raw_data)
 
     @remote.tokengetter
     def get_oauth_token():
@@ -75,9 +85,6 @@ def create_client(app):
 if __name__ == '__main__':
     import os
     os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = 'true'
-    # DEBUG=1 python oauth2_client.py
-    app = Flask(__name__)
-    app.debug = True
-    app.secret_key = 'development'
+    app = Sanic(__name__)
     create_client(app)
-    app.run(host='localhost', port=8000)
+    app.run(host='localhost', port=8000, debug=True, auto_reload=False)

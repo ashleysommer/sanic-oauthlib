@@ -12,22 +12,24 @@ from sanic_oauthlib.contrib.oauth2 import bind_sqlalchemy, bind_cache_grant
 from sanic_oauthlib.provider import oauth2provider
 import sqlalchemy as sa
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, relationship
-
+from sqlalchemy.orm import sessionmaker, relationship, scoped_session
 
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = 'true'
 
 class DB(object):
     def __init__(self, engine_string):
         self.Base = declarative_base()
-        self.Session = sessionmaker()
+        self.session_factory = sessionmaker()
+        self.Session = scoped_session(self.session_factory)
         self.session = None
-        self.engine = engine_string
+        self.engine_string = engine_string
+        self.engine = None
 
     def create_all(self):
-        self.engine = sa.create_engine(self.engine)
+        self.engine = sa.create_engine(self.engine_string)
         self.Base.metadata.create_all(self.engine)
-        self.Session.configure(bind=self.engine)
+        self.session_factory.configure(bind=self.engine)
+        self.Session = scoped_session(self.session_factory)
         self.session = self.Session()
 
     def drop_all(self):
@@ -330,7 +332,7 @@ class TestCase(unittest.TestCase):
         db.create_all()
 
         self.app = app
-        self.client = app.test_client()
+        self.client = app.test_client
         self.prepare_data()
 
     def tearDown(self):

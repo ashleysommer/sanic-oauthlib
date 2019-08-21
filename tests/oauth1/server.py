@@ -3,25 +3,30 @@ from sanic import Sanic
 from sanic.response import json
 from sanic_jinja2_spf import sanic_jinja2
 from spf import SanicPluginsFramework
-from sanic_session_spf import session
 from sanic_oauthlib.provider import oauth1provider
 import sqlalchemy as sa
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, relationship
+from sqlalchemy.orm import sessionmaker, relationship, scoped_session
 
 
 class DB(object):
     def __init__(self, engine_string):
         self.Base = declarative_base()
-        self.Session = sessionmaker()
+        self.session_factory = sessionmaker()
+        self.Session = scoped_session(self.session_factory)
         self.session = None
-        self.engine = engine_string
+        self.engine_string = engine_string
+        self.engine = None
 
     def create_all(self):
-        self.engine = sa.create_engine(self.engine)
+        self.engine = sa.create_engine(self.engine_string)
         self.Base.metadata.create_all(self.engine)
-        self.Session.configure(bind=self.engine)
+        self.session_factory.configure(bind=self.engine)
+        self.Session = scoped_session(self.session_factory)
         self.session = self.Session()
+
+    def drop_all(self):
+        self.Base.metadata.drop_all(self.engine)
 
 db = DB('sqlite:///oauth1.sqlite')
 
@@ -134,155 +139,163 @@ class Token(db.Base):
             return self._realms.split()
         return []
 
-app = Sanic(__name__)
-spf = SanicPluginsFramework(app)
-
-app.config.update({
-        'OAUTH1_PROVIDER_ENFORCE_SSL': False,
-        'OAUTH1_PROVIDER_KEY_LENGTH': (3, 30),
-        'OAUTH1_PROVIDER_REALMS': ['email', 'address']
-    })
-
-
-jinja2 = spf.register_plugin(sanic_jinja2, enable_async=True)
-session = spf.register_plugin(session)
-oauth = spf.register_plugin(oauth1provider)
-
 class Globals(object):
     pass
 
 g = Globals()  # fake globals
 
 
-@oauth.clientgetter
-def get_client(client_key):
-    return db.session.query(Client).filter_by(client_key=client_key).first()
+def default_provider(app):
+    spf = SanicPluginsFramework(app)
+    oauth = spf.register_plugin(oauth1provider)
 
-@oauth.tokengetter
-def load_access_token(client_key, token, *args, **kwargs):
-    t = db.session.query(Token).filter_by(client_key=client_key, token=token).first()
-    return t
+    @oauth.clientgetter
+    def get_client(client_key):
+        return db.session.query(Client).filter_by(client_key=client_key).first()
 
-@oauth.tokensetter
-def save_access_token(token, req):
-    tok = Token(
-        client_key=req.client.client_key,
-        user_id=req.user.id,
-        token=token['oauth_token'],
-        secret=token['oauth_token_secret'],
-        _realms=token['oauth_authorized_realms'],
-    )
-    db.session.add(tok)
-    db.session.commit()
+    @oauth.tokengetter
+    def load_access_token(client_key, token, *args, **kwargs):
+        t = db.session.query(Token).filter_by(client_key=client_key, token=token).first()
+        return t
 
-@oauth.grantgetter
-def load_request_token(token):
-    grant = db.session.query(Grant).filter_by(token=token).first()
-    return grant
+    @oauth.tokensetter
+    def save_access_token(token, req):
+        tok = Token(
+            client_key=req.client.client_key,
+            user_id=req.user.id,
+            token=token['oauth_token'],
+            secret=token['oauth_token_secret'],
+            _realms=token['oauth_authorized_realms'],
+        )
+        db.session.add(tok)
+        db.session.commit()
 
-@oauth.grantsetter
-def save_request_token(token, oauth):
-    if oauth.realms:
-        realms = ' '.join(oauth.realms)
-    else:
-        realms = None
-    grant = Grant(
-        token=token['oauth_token'],
-        secret=token['oauth_token_secret'],
-        client_key=oauth.client.client_key,
-        redirect_uri=oauth.redirect_uri,
-        _realms=realms,
-    )
-    db.session.add(grant)
-    db.session.commit()
-    return grant
+    @oauth.grantgetter
+    def load_request_token(token):
+        grant = db.session.query(Grant).filter_by(token=token).first()
+        return grant
 
-@oauth.verifiergetter
-def load_verifier(verifier, token):
-    return db.session.query(Grant).filter_by(verifier=verifier, token=token).first()
+    @oauth.grantsetter
+    def save_request_token(token, oauth):
+        if oauth.realms:
+            realms = ' '.join(oauth.realms)
+        else:
+            realms = None
+        grant = Grant(
+            token=token['oauth_token'],
+            secret=token['oauth_token_secret'],
+            client_key=oauth.client.client_key,
+            redirect_uri=oauth.redirect_uri,
+            _realms=realms,
+        )
+        db.session.add(grant)
+        db.session.commit()
+        return grant
 
-@oauth.verifiersetter
-def save_verifier(token, verifier, *args, **kwargs):
-    tok = db.session.query(Grant).filter_by(token=token).first()
-    tok.verifier = verifier['oauth_verifier']
-    tok.user_id = g.user.id
-    db.session.add(tok)
-    db.session.commit()
-    return tok
+    @oauth.verifiergetter
+    def load_verifier(verifier, token):
+        return db.session.query(Grant).filter_by(verifier=verifier, token=token).first()
 
-@oauth.noncegetter
-def load_nonce(*args, **kwargs):
-    return None
+    @oauth.verifiersetter
+    def save_verifier(token, verifier, *args, **kwargs):
+        tok = db.session.query(Grant).filter_by(token=token).first()
+        tok.verifier = verifier['oauth_verifier']
+        tok.user_id = g.user.id
+        db.session.add(tok)
+        db.session.commit()
+        return tok
 
-@oauth.noncesetter
-def save_nonce(*args, **kwargs):
-    return None
+    @oauth.noncegetter
+    def load_nonce(*args, **kwargs):
+        return None
 
-@app.middleware
-def load_current_user(request):
-    user = db.session.query(User).get(1)
-    g.user = user
+    @oauth.noncesetter
+    def save_nonce(*args, **kwargs):
+        return None
 
-@app.route('/home')
-async def home(request):
-    return await jinja2.render_async('home.html', request, g=g)
+    return oauth
 
-@app.route('/oauth/authorize', methods=['GET', 'POST', 'OPTIONS'])
-@oauth.authorize_handler
-async def authorize(request, *args, context=None, **kwargs):
-    # NOTICE: for real project, you need to require login
-    if request.method == 'GET':
-        # render a page for user to confirm the authorization
-        return await jinja2.render_async('confirm.html', request, g=g)
 
-    confirm = request.form.get('confirm', 'no')
-    return confirm == 'yes'
+def create_server(app):
 
-@app.route('/oauth/request_token', methods=['GET', 'POST', 'OPTIONS'])
-@oauth.request_token_handler
-def request_token(request, context):
-    return {}
+    app.config.update({
+        'OAUTH1_PROVIDER_ENFORCE_SSL': False,
+        'OAUTH1_PROVIDER_KEY_LENGTH': (3, 30),
+        'OAUTH1_PROVIDER_REALMS': ['email', 'address']
+    })
+    prepare_app(app)
+    oauth = default_provider(app)
+    spf = SanicPluginsFramework(app)
+    jinja2 = spf.register_plugin(sanic_jinja2, enable_async=True)
 
-@app.route('/oauth/access_token', methods=['GET', 'POST', 'OPTIONS'])
-@oauth.access_token_handler
-def access_token(request, context):
-    return {}
+    @app.middleware
+    def load_current_user(request):
+        user = db.session.query(User).get(1)
+        g.user = user
 
-@app.route('/api/email')
-@oauth.require_oauth('email')
-def email_api(request, context):
-    request_context = context['request'][id(request)]
-    oauth = request_context.oauth
-    return json({'email': 'me@oauth.net', 'username': oauth.user.username})
+    @app.route('/home')
+    async def home(request):
+        return await jinja2.render_async('home.html', request, g=g)
 
-@app.route('/api/user')
-@oauth.require_oauth('email')
-def user_api(request, context):
-    request_context = context['request'][id(request)]
-    oauth = request_context.oauth
-    return json({'email': 'me@oauth.net', 'username': oauth.user.username, 'id': oauth.user.id, 'verified': True})
+    @app.route('/oauth/authorize', methods=['GET', 'POST', 'OPTIONS'])
+    @oauth.authorize_handler
+    async def authorize(request, *args, context=None, **kwargs):
+        # NOTICE: for real project, you need to require login
+        if request.method == 'GET':
+            # render a page for user to confirm the authorization
+            return await jinja2.render_async('confirm.html', request, g=g)
 
-@app.route('/api/address/<city>')
-@oauth.require_oauth('address')
-def address_api(request, city, context):
-    request_context = context['request'][id(request)]
-    oauth = request_context.oauth
-    return json({'address': city, 'username': oauth.user.username})
+        confirm = request.form.get('confirm', 'no')
+        return confirm == 'yes'
 
-@app.route('/api/method', methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
-@oauth.require_oauth()
-def method_api(request):
-    return json({'method': request.method})
+    @app.route('/oauth/request_token', methods=['GET', 'POST', 'OPTIONS'])
+    @oauth.request_token_handler
+    def request_token(request, context):
+        return {}
+
+    @app.route('/oauth/access_token', methods=['GET', 'POST', 'OPTIONS'])
+    @oauth.access_token_handler
+    def access_token(request, context):
+        return {}
+
+    @app.route('/api/email')
+    @oauth.require_oauth('email')
+    def email_api(request, context):
+        request_context = context['request'][id(request)]
+        oauth = request_context.oauth
+        return json({'email': 'me@oauth.net', 'username': oauth.user.username})
+
+    @app.route('/api/user')
+    @oauth.require_oauth('email')
+    def user_api(request, context):
+        request_context = context['request'][id(request)]
+        oauth = request_context.oauth
+        return json({'email': 'me@oauth.net', 'username': oauth.user.username, 'id': oauth.user.id, 'verified': True})
+
+    @app.route('/api/address/<city>')
+    @oauth.require_oauth('address')
+    def address_api(request, city, context):
+        request_context = context['request'][id(request)]
+        oauth = request_context.oauth
+        return json({'address': city, 'username': oauth.user.username})
+
+    @app.route('/api/method', methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'])
+    @oauth.require_oauth()
+    def method_api(request, context):
+        return json({'method': request.method})
+
+    return app
 
 def prepare_app(app):
+    if 'SQLALCHEMY_DATABASE_URI' in app.config:
+        db.engine_string = app.config['SQLALCHEMY_DATABASE_URI']
     db.create_all()
 
     client1 = Client(
         client_key='dev', client_secret='devsecret',
         _redirect_uris=(
-            'http://localhost:8888/oauth '
-            'http://127.0.0.1:8888/oauth '
-            'http://localhost/oauth'
+            'http://127.0.0.1:5000/authorized '
+            'http://127.0.0.1/authorized'
         ),
         _realms='email',
     )
@@ -299,5 +312,7 @@ def prepare_app(app):
 
 
 if __name__ == '__main__':
-    app = prepare_app(app)
+    app = Sanic(__name__)
+    spf = SanicPluginsFramework(app)
+    app = create_server(app)
     app.run("localhost", 8098, debug=True, auto_reload=False)

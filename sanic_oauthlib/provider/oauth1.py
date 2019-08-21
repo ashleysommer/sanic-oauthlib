@@ -287,6 +287,7 @@ class OAuth1ProviderAssociated(PluginAssociated):
         c._verifiersetter = f
         return f
 
+    @property
     @lru_cache()
     def server(self):
         """
@@ -344,6 +345,7 @@ class OAuth1ProviderAssociated(PluginAssociated):
             'oauth1 provider plugin not bound to required getters and setters'
         )
 
+    @property
     @lru_cache()
     def error_uri(self):
         """The error page URI.
@@ -394,12 +396,12 @@ class OAuth1ProviderAssociated(PluginAssociated):
                     r = await r
                 if not r:
                     uri = add_params_to_uri(
-                        self.error_uri(), [('error', 'denied')]
+                        self.error_uri, [('error', 'denied')]
                     )
                     return redirect(uri)
                 return plug.confirm_authorization_request(request, self)
 
-            server = self.server()
+            server = self.server
 
             uri, http_method, body, headers = extract_params(request)
             try:
@@ -413,9 +415,9 @@ class OAuth1ProviderAssociated(PluginAssociated):
                     r = await r
                 return r
             except errors.OAuth1Error as e:
-                return redirect(e.in_uri(self.error_uri()))
+                return redirect(e.in_uri(self.error_uri))
             except errors.InvalidClientError as e:
-                return redirect(e.in_uri(self.error_uri()))
+                return redirect(e.in_uri(self.error_uri))
         return decorated
 
     def request_token_handler(self, f):
@@ -436,7 +438,7 @@ class OAuth1ProviderAssociated(PluginAssociated):
         @wraps(f)
         async def decorated(request, *args, **kwargs):
             nonlocal self, context
-            server = self.server()
+            server = self.server
             uri, http_method, body, headers = extract_params(request)
             credentials = f(request, *args, context=context, **kwargs)
             if isawaitable(credentials):
@@ -467,7 +469,7 @@ class OAuth1ProviderAssociated(PluginAssociated):
         @wraps(f)
         async def decorated(request, *args, **kwargs):
             nonlocal self, context
-            server = self.server()
+            server = self.server
             uri, http_method, body, headers = extract_params(request)
             credentials = f(request, *args, context=context, **kwargs)
             if isawaitable(credentials):
@@ -497,7 +499,7 @@ class OAuth1ProviderAssociated(PluginAssociated):
                 if _oauth:
                     return f(request, *args, context=context, **kwargs)
 
-                server = self.server()
+                server = self.server
                 uri, http_method, body, headers = extract_params(request)
                 try:
                     valid, req = server.validate_protected_resource_request(
@@ -519,8 +521,10 @@ class OAuth1ProviderAssociated(PluginAssociated):
                 # alias user for convenience
                 req.user = req.access_token.user
                 request_context['oauth'] = req
-                # No need to await this
-                return f(request, *args, context=context, **kwargs)
+                ret = f(request, *args, context=context, **kwargs)
+                if isawaitable(ret):
+                    ret = await ret
+                return ret
             return decorated
         return wrapper
 
@@ -571,7 +575,7 @@ class OAuth1Provider(SanicPlugin):
     @classmethod
     def confirm_authorization_request(cls, request, assoc):
         """When consumer confirm the authorization."""
-        server = assoc.server()
+        server = assoc.server
         uri, http_method, body, headers = extract_params(request)
         try:
             realms, credentials = server.get_realms_and_credentials(
@@ -583,9 +587,9 @@ class OAuth1Provider(SanicPlugin):
             log.debug('Authorization successful.')
             return create_response(*ret)
         except errors.OAuth1Error as e:
-            return redirect(e.in_uri(assoc.error_uri()))
+            return redirect(e.in_uri(assoc.error_uri))
         except errors.InvalidClientError as e:
-            return redirect(e.in_uri(assoc.error_uri()))
+            return redirect(e.in_uri(assoc.error_uri))
 
 
 instance = oauth1provider = OAuth1Provider()

@@ -1,10 +1,14 @@
 # coding: utf-8
-
+import asyncio
 import time
-from mock import MagicMock
-from nose.tools import raises
-from flask import Flask
-from sanic_oauthlib.client import OAuth, OAuthException
+
+from asynctest import CoroutineMock
+from pytest import raises
+from sanic import Sanic
+from spf import SanicPluginsFramework
+
+from sanic_oauthlib.client import OAuthException, oauthclient
+from pytest_sanic.utils import TestClient as SanicTestClient
 from .server import create_server, db
 from .client import create_client
 from .._base import BaseSuite, clean_url
@@ -17,18 +21,22 @@ class OAuthSuite(BaseSuite):
         return db
 
     def create_app(self):
-        app = Flask(__name__)
-        app.debug = True
-        app.testing = True
-        app.secret_key = 'development'
-        return app
+        client_app = Sanic(__name__)
+        server_app = Sanic(__name__)
+        spf1 = SanicPluginsFramework(client_app)
+        spf2 = SanicPluginsFramework(server_app)
+        return server_app, client_app
 
-    def setup_app(self, app):
-        self.create_server(app)
-        client = self.create_client(app)
-        client.http_request = MagicMock(
-            side_effect=self.patch_request(app)
+    async def setup_app(self, server_app, client_app):
+        self.create_server(server_app)
+        loop = asyncio.get_event_loop_policy().get_event_loop()
+        self.server_client = SanicTestClient(server_app, loop)
+        self.oauth_client = self.create_client(client_app)
+        self.oauth_client.http_request = CoroutineMock(
+            side_effect=self.patch_request(self.server_client)
         )
+        await self.server_client.start_server()
+        return server_app
 
     def create_server(self, app):
         create_server(app)
@@ -37,63 +45,81 @@ class OAuthSuite(BaseSuite):
     def create_client(self, app):
         return create_client(app)
 
+    async def tearDown(self):
+        await self.server_client.close()
+        await super(OAuthSuite, self).tearDown()
+
 
 class TestWebAuth(OAuthSuite):
-    def test_full_flow(self):
-        rv = self.client.get('/login')
-        assert 'oauth_token' in rv.location
+    async def test_full_flow(self):
+        rv = await self.client.get('/login', allow_redirects=False)
+        location = rv.headers.get('Location')
+        assert 'oauth_token' in location
 
-        auth_url = clean_url(rv.location)
-        rv = self.client.get(auth_url)
-        assert '</form>' in u(rv.data)
 
-        rv = self.client.post(auth_url, data={
+        auth_url = clean_url(location)
+        resp, content = await self.oauth_client.http_request(auth_url)
+        assert '</form>' in content
+
+        resp, content = await self.oauth_client.http_request(auth_url, data={
             'confirm': 'yes'
-        })
-        assert 'oauth_token' in rv.location
+        }, method='post', allow_redirects=False)
+        location = resp.headers.get('Location')
+        assert 'oauth_token' in location
 
-        token_url = clean_url(rv.location)
-        rv = self.client.get(token_url)
-        assert 'oauth_token_secret' in u(rv.data)
+        token_url = clean_url(location)
+        rv = await self.client.get(token_url)
+        content = await rv.text()
+        assert 'oauth_token_secret' in content
 
-        rv = self.client.get('/')
-        assert 'email' in u(rv.data)
+        rv = await self.client.get('/')
+        content = await rv.text()
+        assert 'email' in content
 
-        rv = self.client.get('/address')
-        assert rv.status_code == 401
+        rv = await self.client.get('/address')
+        assert rv.status == 401
 
-        rv = self.client.get('/method/post')
-        assert 'POST' in u(rv.data)
+        rv = await self.client.get('/method/post')
+        content = await rv.text()
+        assert 'POST' in content
 
-        rv = self.client.get('/method/put')
-        assert 'PUT' in u(rv.data)
+        rv = await self.client.get('/method/put')
+        content = await rv.text()
+        assert 'PUT' in content
 
-        rv = self.client.get('/method/delete')
-        assert 'DELETE' in u(rv.data)
+        rv = await self.client.get('/method/delete')
+        content = await rv.text()
+        assert 'DELETE' in content
 
-    def test_no_confirm(self):
-        rv = self.client.get('/login')
-        assert 'oauth_token' in rv.location
 
-        auth_url = clean_url(rv.location)
-        rv = self.client.post(auth_url, data={
+    async def test_no_confirm(self):
+        rv = await self.client.get('/login', allow_redirects=False)
+        location = rv.headers.get('Location')
+        assert 'oauth_token' in location
+
+        auth_url = clean_url(location)
+        resp, content = await self.oauth_client.http_request(auth_url, data={
             'confirm': 'no'
-        })
-        assert 'error=denied' in rv.location
+        }, method='post', allow_redirects=False)
+        location = resp.headers.get('Location')
+        assert 'error=denied' in location
 
-    def test_invalid_request_token(self):
-        rv = self.client.get('/login')
-        assert 'oauth_token' in rv.location
-        loc = rv.location.replace('oauth_token=', 'oauth_token=a')
+    async def test_invalid_request_token(self):
+        rv = await self.client.get('/login', allow_redirects=False)
+        location = rv.headers.get('Location')
+        assert 'oauth_token' in location
+        loc = location.replace('oauth_token=', 'oauth_token=a')
 
         auth_url = clean_url(loc)
-        rv = self.client.get(auth_url)
-        assert 'error' in rv.location
+        resp, content = await self.oauth_client.http_request(auth_url, allow_redirects=False)
+        location = resp.headers.get('Location')
+        assert 'error' in location
 
-        rv = self.client.post(auth_url, data={
+        resp, content = await self.oauth_client.http_request(auth_url, data={
             'confirm': 'yes'
-        })
-        assert 'error' in rv.location
+        }, method='post', allow_redirects=False)
+        location = resp.headers.get('Location')
+        assert 'error' in location
 
 
 auth_header = (
@@ -116,63 +142,66 @@ auth_dict = {
 
 
 class TestInvalid(OAuthSuite):
-    @raises(OAuthException)
-    def test_request(self):
-        self.client.get('/login')
+    async def test_request(self):
+        rv = await self.client.get('/login')
+        content = await rv.text()
+        assert rv.status == 500
+        assert 'error' in content
 
-    def test_request_token(self):
-        rv = self.client.get('/oauth/request_token')
-        assert 'error' in u(rv.data)
+    async def test_request_token(self):
+        rv, content = await self.oauth_client.http_request('/oauth/request_token')
+        assert 'error' in content
 
-    def test_access_token(self):
-        rv = self.client.get('/oauth/access_token')
-        assert 'error' in u(rv.data)
+    async def test_access_token(self):
+        rv, content = await self.oauth_client.http_request('/oauth/access_token')
+        assert 'error' in content
 
-    def test_invalid_realms(self):
+    async def test_invalid_realms(self):
         auth_format = auth_dict.copy()
         auth_format['realm'] = 'profile'
 
         headers = {
             u'Authorization': auth_header % auth_format
         }
-        rv = self.client.get('/oauth/request_token', headers=headers)
-        assert 'error' in u(rv.data)
-        assert 'realm' in u(rv.data)
+        rv, content = await self.oauth_client.http_request('/oauth/request_token', headers=headers)
+        assert 'error' in content
+        assert 'realm' in content
 
-    def test_no_realms(self):
+    async def test_no_realms(self):
         auth_format = auth_dict.copy()
         auth_format['realm'] = ''
 
         headers = {
             u'Authorization': auth_header % auth_format
         }
-        rv = self.client.get('/oauth/request_token', headers=headers)
-        assert 'secret' in u(rv.data)
+        rv, content = await self.oauth_client.http_request('/oauth/request_token', headers=headers)
+        assert rv.status == 401
 
-    def test_no_callback(self):
+    async def test_no_callback(self):
         auth_format = auth_dict.copy()
         auth_format['callback'] = ''
 
         headers = {
             u'Authorization': auth_header % auth_format
         }
-        rv = self.client.get('/oauth/request_token', headers=headers)
-        assert 'error' in u(rv.data)
-        assert 'callback' in u(rv.data)
+        rv, content = await self.oauth_client.http_request('/oauth/request_token', headers=headers)
+        assert 'error' in content
+        assert 'callback' in content
 
-    def test_invalid_signature_method(self):
+    async def test_invalid_signature_method(self):
         auth_format = auth_dict.copy()
         auth_format['signature_method'] = 'PLAIN'
 
         headers = {
             u'Authorization': auth_header % auth_format
         }
-        rv = self.client.get('/oauth/request_token', headers=headers)
-        assert 'error' in u(rv.data)
-        assert 'signature' in u(rv.data)
+        rv, content = await self.oauth_client.http_request('/oauth/request_token', headers=headers)
+        assert 'error' in content
+        assert 'signature' in content
 
     def create_client(self, app):
-        oauth = OAuth(app)
+        spf = SanicPluginsFramework(app)
+        oauth = spf.register_plugin(oauthclient)
 
         remote = oauth.remote_app(
             'dev',

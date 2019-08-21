@@ -2,51 +2,53 @@
 
 import base64
 import os
-import sys
 import tempfile
-import unittest
+import asynctest
+import asyncio
 from sanic_oauthlib.client import prepare_request
-try:
-    from urlparse import urlparse
-except ImportError:
-    from urllib.parse import urlparse
-
-if sys.version_info[0] == 3:
-    python_version = 3
-    string_type = str
-else:
-    python_version = 2
-    string_type = unicode
+from pytest_sanic.utils import TestClient as SanicTestClient
+from urllib.parse import urlparse
 
 # os.environ['DEBUG'] = 'true'
 # for oauthlib 0.6.3
+
+
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = 'true'
 
 
-class BaseSuite(unittest.TestCase):
-    def setUp(self):
-        app = self.create_app()
+class BaseSuite(asynctest.TestCase):
+    async def setUp(self):
+        provider_app, client_app = self.create_app()
 
         self.db_fd, self.db_file = tempfile.mkstemp()
-        config = {
+        provider_config = {
+            'SERVER_NAME': '127.0.0.1:5001',
             'OAUTH1_PROVIDER_ENFORCE_SSL': False,
             'OAUTH1_PROVIDER_KEY_LENGTH': (3, 30),
             'OAUTH1_PROVIDER_REALMS': ['email', 'address'],
             'SQLALCHEMY_DATABASE_URI': 'sqlite:///%s' % self.db_file,
             'SQLALCHEMY_TRACK_MODIFICATIONS': False
         }
-        app.config.update(config)
+        provider_app.config.update(provider_config)
 
-        self.setup_app(app)
+        client_config = {
+            'SERVER_NAME': '127.0.0.1:5000',
+        }
+        client_app.config.update(client_config)
 
-        self.app = app
-        self.client = app.test_client()
-        return app
+        await self.setup_app(provider_app, client_app)
 
-    def tearDown(self):
-        self.database.session.remove()
+        self.client_app = client_app
+        self.provider_app = provider_app
+        loop = asyncio.get_event_loop_policy().get_event_loop()
+        self.client = SanicTestClient(client_app, loop)
+        await self.client.start_server()
+        return provider_app
+
+    async def tearDown(self):
+        await self.client.close()
+        self.database.Session.remove()
         self.database.drop_all()
-
         os.close(self.db_fd)
         os.unlink(self.db_file)
 
@@ -60,35 +62,33 @@ class BaseSuite(unittest.TestCase):
     def setup_app(self, app):
         raise NotImplementedError
 
-    def patch_request(self, app):
-        test_client = app.test_client()
-
-        def make_request(uri, headers=None, data=None, method=None):
+    def patch_request(self, test_client):
+        async def make_request(uri, headers=None, data=None, method=None, **kwargs):
             uri, headers, data, method = prepare_request(
                 uri, headers, data, method
             )
 
-            # test client is a `werkzeug.test.Client`
             parsed = urlparse(uri)
             uri = '%s?%s' % (parsed.path, parsed.query)
-            resp = test_client.open(
-                uri, headers=headers, data=data, method=method
-            )
+            if not test_client._server.is_running:
+                raise RuntimeError("Run TestClient.start_server() first")
+            resp = await test_client._request(method,
+                uri, headers=headers, data=data, **kwargs)
+            content = await resp.text()
             # for compatible
-            resp.code = resp.status_code
-            return resp, resp.data
-
+            resp.code = resp.status
+            return resp, content
         return make_request
 
 
 def to_unicode(text):
-    if not isinstance(text, string_type):
+    if not isinstance(text, str):
         text = text.decode('utf-8')
     return text
 
 
 def to_bytes(text):
-    if isinstance(text, string_type):
+    if isinstance(text, str):
         text = text.encode('utf-8')
     return text
 

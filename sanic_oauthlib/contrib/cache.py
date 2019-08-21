@@ -1,7 +1,121 @@
 # coding: utf-8
+from os import path
+from pickle import Pickler, Unpickler
 
-from werkzeug.contrib.cache import NullCache, SimpleCache, FileSystemCache
-from werkzeug.contrib.cache import MemcachedCache, RedisCache
+
+class NullCache(object):
+
+    def __getattr__(self, item):
+        return None
+
+    def __setattr__(self, key, value):
+        return
+
+
+class SimpleCache(object):
+    __slots__ = ("_sc_cache", "_sc_threshold", "_sc_key_list")
+
+    def __init__(self, threshold=1000):
+        self._sc_threshold = threshold
+        self._sc_key_list = []
+        self._sc_cache = {}
+
+    def __getattr__(self, key):
+        try:
+            return object.__getattribute__(self, key)
+        except AttributeError:
+            try:
+                _sc_key_list = self._sc_key_list
+                obj = self._sc_cache[key]
+                if _sc_key_list.index(key) < len(_sc_key_list) - 1:
+                    _sc_key_list.remove(key)
+                    _sc_key_list.append(key)
+                return obj
+            except KeyError:
+                raise AttributeError(key)
+
+    def __setattr__(self, key, value):
+        try:
+            object.__setattr__(self, key, value)
+        except (AttributeError, ValueError):
+            try:
+                self._sc_key_list.remove(key)
+            except ValueError:
+                pass
+            self._sc_cache[key] = value
+            self._sc_key_list.append(key)
+            self._adj_threshold()
+        return
+
+    def _adj_threshold(self):
+        while len(self._sc_key_list) > self._sc_threshold:
+            first_key = self._sc_key_list.pop(0)
+            self._sc_cache.__delitem__(first_key)
+
+
+class FileSystemCache(object):
+    __slots__ = ("_fsc_filename", "_fsc_threshold")
+
+    def __init__(self, directory, filename=None, threshold=1000):
+        self._fsc_threshold = threshold
+        if directory is None:
+            directory = path.curdir
+        if filename is None:
+            filename = "sanic_oauth_cache.pickle"
+        self._fsc_filename = path.join((directory, filename))
+        _cache = dict()
+        _cache['_fsc_key_list'] = list()
+        self._fsc_pickler(_cache)
+
+    def _fsc_pickler(self, obj):
+        with open(self._fsc_filename, 'wb', encoding='latin-1') as f:
+            p = Pickler(f, 4)
+            p.dump(obj)
+
+    def _fsc_unpickler(self):
+        with open(self._fsc_filename, 'rb', encoding='latin-1') as f:
+            p = Unpickler(f, 4)
+            return p.load()
+
+    def __getattr__(self, key):
+        try:
+            return object.__getattribute__(self, key)
+        except AttributeError:
+            _cache = self._fsc_unpickler()
+            _fsc_key_list = _cache.get('_fsc_key_list')
+            try:
+                obj = self._cache[key]
+                if _fsc_key_list.index(key) < len(_fsc_key_list) - 1:
+                    _fsc_key_list.remove(key)
+                    _fsc_key_list.append(key)
+                    _cache['_fsc_key_list'] = _fsc_key_list
+                    self._fsc_pickler(_cache)
+                return obj
+            except KeyError:
+                raise AttributeError(key)
+
+    def __setattr__(self, key, value):
+        try:
+            object.__setattr__(self, key, value)
+        except (AttributeError, ValueError):
+            _cache = self._fsc_unpickler()
+            _fsc_key_list = _cache.get('_fsc_key_list')
+            try:
+                _fsc_key_list.remove(key)
+            except ValueError:
+                pass
+            _cache[key] = value
+            _fsc_key_list.append(key)
+            self._adj_threshold(_cache)
+            self._fsc_pickler(_cache)
+        return
+
+    def _adj_threshold(self, _cache):
+        _fsc_key_list = _cache.get('_fsc_key_list')
+        while len(_fsc_key_list) > self._fsc_threshold:
+            first_key = _fsc_key_list.pop(0)
+            _cache.__delitem__(first_key)
+        _cache['_fsc_key_list'] = _fsc_key_list
 
 
 class Cache(object):
@@ -59,22 +173,11 @@ class Cache(object):
 
     def _memcache(self, **kwargs):
         """Returns a :class:`MemcachedCache` instance"""
-        kwargs.update(dict(
-            servers=self._config('MEMCACHED_SERVERS', None),
-            key_prefix=self._config('key_prefix', None),
-        ))
-        return MemcachedCache(**kwargs)
+        raise NotImplementedError("Sanic-OAuthLib doesn't implement a Memcached Cache")
 
     def _redis(self, **kwargs):
         """Returns a :class:`RedisCache` instance"""
-        kwargs.update(dict(
-            host=self._config('REDIS_HOST', 'localhost'),
-            port=self._config('REDIS_PORT', 6379),
-            password=self._config('REDIS_PASSWORD', None),
-            db=self._config('REDIS_DB', 0),
-            key_prefix=self._config('KEY_PREFIX', None),
-        ))
-        return RedisCache(**kwargs)
+        raise NotImplementedError("Sanic-OAuthLib doesn't implement a Redis Cache")
 
     def _filesystem(self, **kwargs):
         """Returns a :class:`FileSystemCache` instance"""

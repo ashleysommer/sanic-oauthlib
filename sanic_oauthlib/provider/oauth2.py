@@ -263,6 +263,7 @@ class OAuth2ProviderAssociated(PluginAssociated):
         c._grantsetter = f
         return f
 
+    @property
     @lru_cache()
     def server(self):
         """
@@ -336,6 +337,7 @@ class OAuth2ProviderAssociated(PluginAssociated):
             )
         raise RuntimeError('oauth2 provider plugin not bound to required getters and setters')
 
+    @property
     @lru_cache()
     def error_uri(self):
         """The error page URI.
@@ -396,11 +398,11 @@ class OAuth2ProviderAssociated(PluginAssociated):
         async def decorated(request, *args, **kwargs):
             nonlocal self, plug, reg, context
             # raise if server not implemented
-            server = self.server()
+            server = self.server
             uri, http_method, body, headers = extract_params(request)
 
             if request.method in ('GET', 'HEAD'):
-                redirect_uri = request.args.get('redirect_uri', self.error_uri())
+                redirect_uri = request.args.get('redirect_uri', self.error_uri)
                 log.debug('Found redirect_uri %s.', redirect_uri)
                 try:
                     ret = server.validate_authorization_request(
@@ -413,7 +415,7 @@ class OAuth2ProviderAssociated(PluginAssociated):
                     kwargs.update(credentials)
                 except oauth2.FatalClientError as e:
                     log.debug('Fatal client error %r', e, exc_info=True)
-                    return plug._on_exception(context, e, e.in_uri(self.error_uri()))
+                    return plug._on_exception(context, e, e.in_uri(self.error_uri))
                 except oauth2.OAuth2Error as e:
                     log.debug('OAuth2Error: %r', e, exc_info=True)
                     # on auth error, we should preserve state if it's present according to RFC 6749
@@ -425,12 +427,12 @@ class OAuth2ProviderAssociated(PluginAssociated):
                 except Exception as e:
                     log.exception(e)
                     return plug._on_exception(context, e, add_params_to_uri(
-                        self.error_uri(), {'error': str(e)}
+                        self.error_uri, {'error': str(e)}
                     ))
 
             else:
                 redirect_uri = request.args.get(
-                    'redirect_uri', self.error_uri()
+                    'redirect_uri', self.error_uri
                 )
 
             try:
@@ -439,7 +441,7 @@ class OAuth2ProviderAssociated(PluginAssociated):
                     rv = await rv
             except oauth2.FatalClientError as e:
                 log.debug('Fatal client error %r', e, exc_info=True)
-                return plug._on_exception(context, e, e.in_uri(self.error_uri()))
+                return plug._on_exception(context, e, e.in_uri(self.error_uri))
             except oauth2.OAuth2Error as e:
                 log.debug('OAuth2Error: %r', e, exc_info=True)
                 # on auth error, we should preserve state if it's present according to RFC 6749
@@ -479,7 +481,7 @@ class OAuth2ProviderAssociated(PluginAssociated):
         @wraps(f)
         async def decorated(request, *args, **kwargs):
             nonlocal self, context
-            server = self.server()
+            server = self.server
             uri, http_method, body, headers = extract_params(request)
             credentials = f(request, *args, context=context, **kwargs)
             if isawaitable(credentials):
@@ -512,7 +514,7 @@ class OAuth2ProviderAssociated(PluginAssociated):
         @wraps(_f)
         def decorated(request, *args, **kwargs):
             nonlocal self
-            server = self.server()
+            server = self.server
             token = request.args.get('token')
             request.token_type_hint = request.args.get('token_type_hint')
             if token:
@@ -554,8 +556,10 @@ class OAuth2ProviderAssociated(PluginAssociated):
                         return context._invalid_response(req)
                     raise Unauthorized("Unauthorized")
                 request_context['oauth'] = req
-                # No need to await this
-                return f(request, *args, context=context, **kwargs)
+                ret = f(request, *args, context=context, **kwargs)
+                if isawaitable(ret):
+                    ret = await ret
+                return ret
             return decorated
         return wrapper
 
@@ -632,7 +636,7 @@ class OAuth2Provider(SanicPlugin):
     @classmethod
     def confirm_authorization_request(cls, request, assoc):
         """When consumer confirm the authorization."""
-        server = assoc.server()
+        server = assoc.server
         context = assoc.context()
         scope = request.args.get('scope') or ''
         scopes = scope.split()
@@ -654,18 +658,18 @@ class OAuth2Provider(SanicPlugin):
             return create_response(*ret)
         except oauth2.FatalClientError as e:
             log.debug('Fatal client error %r', e, exc_info=True)
-            return cls._on_exception(context, e, e.in_uri(assoc.error_uri()))
+            return cls._on_exception(context, e, e.in_uri(assoc.error_uri))
         except oauth2.OAuth2Error as e:
             log.debug('OAuth2Error: %r', e, exc_info=True)
             # on auth error, we should preserve state if it's present according to RFC 6749
             state = request.args.get('state')
             if state and not e.state:
                 e.state = state  # set e.state so e.in_uri() can add the state query parameter to redirect uri
-            return cls._on_exception(context, e, e.in_uri(redirect_uri or assoc.error_uri()))
+            return cls._on_exception(context, e, e.in_uri(redirect_uri or assoc.error_uri))
         except Exception as e:
             log.exception(e)
             return cls._on_exception(context, e, add_params_to_uri(
-                assoc.error_uri(), {'error': str(e)}
+                assoc.error_uri, {'error': str(e)}
             ))
 
     @classmethod
@@ -681,7 +685,7 @@ class OAuth2Provider(SanicPlugin):
                     return jsonify(user=req.user)
                 return jsonify(status='error')
         """
-        server = assoc.server()
+        server = assoc.server
         uri, http_method, body, headers = extract_params(request)
         return server.verify_request(uri, http_method, body, headers, scopes)
 

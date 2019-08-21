@@ -15,13 +15,17 @@ def _get_uri_from_request(request):
     uri = request._parsed_url.path
     if request._parsed_url.query:
         uri = uri+b'?'+request._parsed_url.query
-    return request.scheme + "://" + request.host + uri.decode('utf-8')
+    return request.scheme + "://" + request.server_name + uri.decode('utf-8')
 
 
 
-def extract_params(request):
+def extract_params(request=None):
     """Extract request params."""
-
+    if request is None:
+        if 'request' in extract_params.__globals__:
+            request = extract_params.__globals__['request']
+        else:
+            raise ValueError('request')
     uri = _get_uri_from_request(request)
     http_method = request.method
     headers = dict(request.headers)

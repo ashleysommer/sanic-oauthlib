@@ -63,9 +63,12 @@ class FileSystemCache(object):
         if filename is None:
             filename = "sanic_oauth_cache.pickle"
         self._fsc_filename = path.join(directory, filename)
-        _cache = dict()
-        _cache['_fsc_key_list'] = list()
-        self._fsc_pickler(_cache)
+        try:
+            _cache = self._fss_unpickler()
+        except FileNotFoundError:
+            _cache = dict()
+            _cache['_fsc_key_list'] = list()
+            self._fsc_pickler(_cache)
 
     def _fsc_pickler(self, obj):
         with open(self._fsc_filename, 'wb') as f:

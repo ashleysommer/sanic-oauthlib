@@ -16,15 +16,11 @@ import oauthlib.oauth2
 from copy import copy
 from functools import wraps, lru_cache
 from oauthlib.common import to_unicode, add_params_to_uri, urlencode
-from sanic import Sanic
 from sanic.request import RequestParameters
 from sanic.response import redirect, json
-from spf import SanicPluginsFramework, SanicPlugin
+from spf import SanicPlugin
 from json import loads as json_loads
 from json import dumps as json_dumps
-#from flask import request, redirect, json, session, current_app
-#from werkzeug import url_quote, url_decode, url_encode
-#from werkzeug import parse_options_header, cached_property
 from spf.plugin import PluginAssociated
 
 from .utils import to_bytes

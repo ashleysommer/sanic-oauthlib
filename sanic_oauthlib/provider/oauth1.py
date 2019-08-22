@@ -399,7 +399,7 @@ class OAuth1ProviderAssociated(PluginAssociated):
                         self.error_uri, [('error', 'denied')]
                     )
                     return redirect(uri)
-                return plug.confirm_authorization_request(request, self)
+                return await plug.confirm_authorization_request(request, context, self)
 
             server = self.server
 
@@ -414,10 +414,11 @@ class OAuth1ProviderAssociated(PluginAssociated):
                 if isawaitable(r):
                     r = await r
                 return r
-            except errors.OAuth1Error as e:
-                return redirect(e.in_uri(self.error_uri))
             except errors.InvalidClientError as e:
                 return redirect(e.in_uri(self.error_uri))
+            except errors.OAuth1Error as e:
+                return redirect(e.in_uri(self.error_uri))
+
         return decorated
 
     def request_token_handler(self, f):
@@ -573,23 +574,48 @@ class OAuth1Provider(SanicPlugin):
         app.extensions['oauthlib.provider.oauth1'] = self
 
     @classmethod
-    def confirm_authorization_request(cls, request, assoc):
+    async def confirm_authorization_request(cls, request, context, assoc):
         """When consumer confirm the authorization."""
         server = assoc.server
+        shared_context = context.shared
+        shared_request_context = shared_context.request[id(request)]
+        # In oauth1, the only way for a user to add new items to the credentials
+        # list is to put them in the current spf shared_context or session
+        session = shared_request_context.get('session', None)
         uri, http_method, body, headers = extract_params(request)
         try:
             realms, credentials = server.get_realms_and_credentials(
                 uri, http_method=http_method, body=body, headers=headers
             )
+            def update_credentials(repo):
+                nonlocal credentials
+                for k in repo.keys():
+                    if str(k).startswith("credentials"):
+                        v = repo.get(k)
+                        if isinstance(v, dict):
+                            credentials.update(v)
+                        elif isinstance(v, (list, tuple)):
+                            if len(v) > 0 and isinstance(v[0], tuple):
+                                for kk, vv in v:
+                                    credentials[kk] = vv
+                        else:
+                            k = k.replace("credentials", "").strip("_")
+                            if len(k) > 0:
+                                credentials[k] = v
+
+            update_credentials(shared_request_context)
+            if session:
+                update_credentials(session)
             ret = server.create_authorization_response(
                 uri, http_method, body, headers, realms, credentials
             )
             log.debug('Authorization successful.')
             return create_response(*ret)
-        except errors.OAuth1Error as e:
-            return redirect(e.in_uri(assoc.error_uri))
         except errors.InvalidClientError as e:
             return redirect(e.in_uri(assoc.error_uri))
+        except errors.OAuth1Error as e:
+            return redirect(e.in_uri(assoc.error_uri))
+
 
 
 instance = oauth1provider = OAuth1Provider()

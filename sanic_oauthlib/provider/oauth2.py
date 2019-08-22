@@ -459,7 +459,7 @@ class OAuth2ProviderAssociated(PluginAssociated):
                 e = oauth2.AccessDeniedError(state=request.args.get('state'))
                 return plug._on_exception(context, e, e.in_uri(redirect_uri))
 
-            return plug.confirm_authorization_request(request, self)
+            return await plug.confirm_authorization_request(request, context, self)
 
         return decorated
 
@@ -634,10 +634,12 @@ class OAuth2Provider(SanicPlugin):
             return response.redirect(redirect_content)
 
     @classmethod
-    def confirm_authorization_request(cls, request, assoc):
+    async def confirm_authorization_request(cls, request, context, assoc):
         """When consumer confirm the authorization."""
         server = assoc.server
-        context = assoc.context()
+        shared_context = context.shared
+        shared_request_context = shared_context.request[id(request)]
+        session = shared_request_context.get('session', None)
         scope = request.args.get('scope') or ''
         scopes = scope.split()
         credentials = dict(
@@ -652,6 +654,25 @@ class OAuth2Provider(SanicPlugin):
 
         uri, http_method, body, headers = extract_params(request)
         try:
+            def update_credentials(repo):
+                nonlocal credentials
+                for k in repo.keys():
+                    if str(k).startswith("credentials"):
+                        v = repo.get(k)
+                        if isinstance(v, dict):
+                            credentials.update(v)
+                        elif isinstance(v, (list, tuple)):
+                            if len(v) > 0 and isinstance(v[0], tuple):
+                                for kk, vv in v:
+                                    credentials[kk] = vv
+                        else:
+                            k = k.replace("credentials", "").strip("_")
+                            if len(k) > 0:
+                                credentials[k] = v
+
+            update_credentials(shared_request_context)
+            if session:
+                update_credentials(session)
             ret = server.create_authorization_response(
                 uri, http_method, body, headers, scopes, credentials)
             log.debug('Authorization successful.')

@@ -62,19 +62,19 @@ class FileSystemCache(object):
             directory = path.curdir
         if filename is None:
             filename = "sanic_oauth_cache.pickle"
-        self._fsc_filename = path.join((directory, filename))
+        self._fsc_filename = path.join(directory, filename)
         _cache = dict()
         _cache['_fsc_key_list'] = list()
         self._fsc_pickler(_cache)
 
     def _fsc_pickler(self, obj):
-        with open(self._fsc_filename, 'wb', encoding='latin-1') as f:
+        with open(self._fsc_filename, 'wb') as f:
             p = Pickler(f, 4)
             p.dump(obj)
 
     def _fsc_unpickler(self):
-        with open(self._fsc_filename, 'rb', encoding='latin-1') as f:
-            p = Unpickler(f, 4)
+        with open(self._fsc_filename, 'rb') as f:
+            p = Unpickler(f)
             return p.load()
 
     def __getattr__(self, key):

@@ -15,7 +15,25 @@ def _get_uri_from_request(request):
     uri = request._parsed_url.path
     if request._parsed_url.query:
         uri = uri+b'?'+request._parsed_url.query
-    return request.scheme + "://" + request.server_name + uri.decode('utf-8')
+    server_name = request.server_name
+    port_included = True
+    if ":" in server_name:
+        server_name, port = server_name.split(':', 1)
+    else:
+        try:
+            port = request.server_port
+            assert port is not None
+            assert port > 0
+        except Exception:
+            port = 80
+        if request.scheme == "https" and port == 443:
+            port_included = False
+        elif request.scheme == "http" and port == 80:
+            port_included = False
+
+    if port_included:
+        return request.scheme + "://" + server_name + ':' + str(port) + uri.decode('utf-8')
+    return request.scheme + "://" + server_name + uri.decode('utf-8')
 
 
 

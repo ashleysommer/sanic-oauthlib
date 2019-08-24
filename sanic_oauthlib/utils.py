@@ -15,7 +15,10 @@ def _get_uri_from_request(request):
     uri = request._parsed_url.path
     if request._parsed_url.query:
         uri = uri+b'?'+request._parsed_url.query
-    server_name = request.server_name
+    try:
+        server_name = request.server_name
+    except AttributeError:
+        server_name = request.host
     port_included = True
     if ":" in server_name:
         server_name, port = server_name.split(':', 1)

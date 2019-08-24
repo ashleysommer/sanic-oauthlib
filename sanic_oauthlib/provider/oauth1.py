@@ -32,6 +32,7 @@ log = logging.getLogger('sanic_oauthlib')
 
 class OAuth1ProviderAssociated(PluginAssociated):
 
+    @property
     def context(self):
         (_p, reg) = self
         (s, n, _u) = reg
@@ -58,7 +59,7 @@ class OAuth1ProviderAssociated(PluginAssociated):
 
                 track_request(client)
         """
-        c = self.context()
+        c = self.context
         c._before_request_funcs.append(f)
         return f
 
@@ -74,7 +75,7 @@ class OAuth1ProviderAssociated(PluginAssociated):
                     return False, oauth
                 return valid, oauth
         """
-        c = self.context()
+        c = self.context
         c._after_request_funcs.append(f)
         return f
 
@@ -101,7 +102,7 @@ class OAuth1ProviderAssociated(PluginAssociated):
                 # Client is an object
                 return client
         """
-        c = self.context()
+        c = self.context
         c._clientgetter = f
         return f
 
@@ -123,7 +124,7 @@ class OAuth1ProviderAssociated(PluginAssociated):
             def get_access_token(client_key, token):
                 return AccessToken.get(client_key=client_key, token=token)
         """
-        c = self.context()
+        c = self.context
         c._tokengetter = f
         return f
 
@@ -158,7 +159,7 @@ class OAuth1ProviderAssociated(PluginAssociated):
             - user: User object associated with this token
             - request_token: Requst token for exchanging this access token
         """
-        c = self.context()
+        c = self.context
         c._tokensetter = f
         return f
 
@@ -180,7 +181,7 @@ class OAuth1ProviderAssociated(PluginAssociated):
             def get_request_token(token):
                 return RequestToken.get(token=token)
         """
-        c = self.context()
+        c = self.context
         c._grantgetter = f
         return f
 
@@ -200,7 +201,7 @@ class OAuth1ProviderAssociated(PluginAssociated):
                 )
                 return data.save()
         """
-        c = self.context()
+        c = self.context
         c._grantsetter = f
         return f
 
@@ -222,7 +223,7 @@ class OAuth1ProviderAssociated(PluginAssociated):
                           access_token):
                 return Nonce.get("...")
         """
-        c = self.context()
+        c = self.context
         c._noncegetter = f
         return f
 
@@ -240,7 +241,7 @@ class OAuth1ProviderAssociated(PluginAssociated):
         The timestamp will be expired in 60s, it would be a better design
         if you put timestamp and nonce object in a cache.
         """
-        c = self.context()
+        c = self.context
         c._noncesetter = f
         return f
 
@@ -260,7 +261,7 @@ class OAuth1ProviderAssociated(PluginAssociated):
                     return data
                 return data
         """
-        c = self.context()
+        c = self.context
         c._verifiergetter = f
         return f
 
@@ -283,7 +284,7 @@ class OAuth1ProviderAssociated(PluginAssociated):
                 )
                 return data.save()
         """
-        c = self.context()
+        c = self.context
         c._verifiersetter = f
         return f
 
@@ -294,7 +295,7 @@ class OAuth1ProviderAssociated(PluginAssociated):
         All in one endpoints. This property is created automaticly
         if you have implemented all the getters and setters.
         """
-        ctx = self.context()
+        ctx = self.context
         cfg = ctx._config
         _validator = ctx.get('_validator', None)
         if _validator is not None:
@@ -359,7 +360,7 @@ class OAuth1ProviderAssociated(PluginAssociated):
 
             OAUTH1_PROVIDER_ERROR_ENDPOINT = 'oauth.error'
         """
-        ctx = self.context()
+        ctx = self.context
         cfg = ctx._config
         error_uri = cfg.get('OAUTH1_PROVIDER_ERROR_URI')
         if error_uri:
@@ -386,7 +387,7 @@ class OAuth1ProviderAssociated(PluginAssociated):
                 return confirm == 'yes'
         """
         plug, reg = self
-        context = self.context()
+        context = self.context
         @wraps(f)
         async def decorated(request, *args, **kwargs):
             nonlocal self, plug, reg, context
@@ -435,7 +436,7 @@ class OAuth1ProviderAssociated(PluginAssociated):
             def request_token():
                 return {}
         """
-        context = self.context()
+        context = self.context
         @wraps(f)
         async def decorated(request, *args, **kwargs):
             nonlocal self, context
@@ -466,7 +467,7 @@ class OAuth1ProviderAssociated(PluginAssociated):
             def access_token():
                 return {}
         """
-        context = self.context()
+        context = self.context
         @wraps(f)
         async def decorated(request, *args, **kwargs):
             nonlocal self, context
@@ -487,7 +488,7 @@ class OAuth1ProviderAssociated(PluginAssociated):
         """Protect resource with specified scopes."""
         def wrapper(f):
             nonlocal self
-            context = self.context()
+            context = self.context
             @wraps(f)
             async def decorated(request, *args, **kwargs):
                 nonlocal self, context

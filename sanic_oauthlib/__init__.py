@@ -11,7 +11,7 @@
     :license: BSD, see LICENSE for more details.
 """
 
-__version__ = "0.1.0.post2"
+__version__ = "0.1.0.post3"
 __author__ = "Ashley Sommer <ashleysommer@gmail.com>"
 __homepage__ = 'https://github.com/ashleysommer/sanic-oauthlib'
 __license__ = 'BSD'

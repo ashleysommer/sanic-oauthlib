@@ -32,6 +32,7 @@ log = logging.getLogger('sanic_oauthlib')
 
 class OAuth2ProviderAssociated(PluginAssociated):
 
+    @property
     def context(self):
         (_p, reg) = self
         (s, n, _u) = reg
@@ -74,7 +75,7 @@ class OAuth2ProviderAssociated(PluginAssociated):
                     return False, oauth
                 return valid, oauth
         """
-        c = self.context()
+        c = self.context
         c._after_request_funcs.append(f)
         return f
 
@@ -103,7 +104,7 @@ class OAuth2ProviderAssociated(PluginAssociated):
 
         If no function is registered, it will do a redirect with ``redirect_content`` as content.
         """
-        c = self.context()
+        c = self.context
         c._exception_handler = f
         return f
 
@@ -120,7 +121,7 @@ class OAuth2ProviderAssociated(PluginAssociated):
 
         If no function is registered, it will return with ``abort(401)``.
         """
-        c = self.context()
+        c = self.context
         c._invalid_response = f
         return f
 
@@ -151,7 +152,7 @@ class OAuth2ProviderAssociated(PluginAssociated):
                 # Client is an object
                 return client
         """
-        c = self.context()
+        c = self.context
         c._clientgetter = f
         return f
 
@@ -175,7 +176,7 @@ class OAuth2ProviderAssociated(PluginAssociated):
                 # maybe you will need it somewhere
                 return user
         """
-        c = self.context()
+        c = self.context
         c._usergetter = f
         return f
 
@@ -203,7 +204,7 @@ class OAuth2ProviderAssociated(PluginAssociated):
                     return get_token(refresh_token=refresh_token)
                 return None
         """
-        c = self.context()
+        c = self.context
         c._tokengetter = f
         return f
 
@@ -229,7 +230,7 @@ class OAuth2ProviderAssociated(PluginAssociated):
         The request is an object, that contains an user object and a
         client object.
         """
-        c = self.context()
+        c = self.context
         c._tokensetter = f
         return f
 
@@ -246,7 +247,7 @@ class OAuth2ProviderAssociated(PluginAssociated):
 
             - delete: A function to delete itself
         """
-        c = self.context()
+        c = self.context
         c._grantgetter = f
         return f
 
@@ -259,7 +260,7 @@ class OAuth2ProviderAssociated(PluginAssociated):
             def set_grant(client_id, code, request, *args, **kwargs):
                 save_grant(client_id, code, request.user, request.scopes)
         """
-        c = self.context()
+        c = self.context
         c._grantsetter = f
         return f
 
@@ -282,7 +283,7 @@ class OAuth2ProviderAssociated(PluginAssociated):
 
             oauth._validator = MyValidator()
         """
-        ctx = self.context()
+        ctx = self.context
         cfg = ctx._config
         expires_in = cfg.get('OAUTH2_PROVIDER_TOKEN_EXPIRES_IN')
         token_generator = cfg.get(
@@ -351,7 +352,7 @@ class OAuth2ProviderAssociated(PluginAssociated):
 
             OAUTH2_PROVIDER_ERROR_ENDPOINT = 'oauth.error'
         """
-        ctx = self.context()
+        ctx = self.context
         cfg = ctx._config
         error_uri = cfg.get('OAUTH2_PROVIDER_ERROR_URI')
         if error_uri:
@@ -393,7 +394,7 @@ class OAuth2ProviderAssociated(PluginAssociated):
                 return confirm == 'yes'
         """
         plug, reg = self
-        context = self.context()
+        context = self.context
         @wraps(f)
         async def decorated(request, *args, **kwargs):
             nonlocal self, plug, reg, context
@@ -477,7 +478,7 @@ class OAuth2ProviderAssociated(PluginAssociated):
             def access_token():
                 return None
         """
-        context = self.context()
+        context = self.context
         @wraps(f)
         async def decorated(request, *args, **kwargs):
             nonlocal self, context
@@ -531,7 +532,7 @@ class OAuth2ProviderAssociated(PluginAssociated):
         def wrapper(f):
             nonlocal self
             plug, reg = self
-            context = self.context()
+            context = self.context
             @wraps(f)
             async def decorated(request, *args, **kwargs):
                 nonlocal self, plug, reg, context

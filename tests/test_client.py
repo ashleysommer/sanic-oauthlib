@@ -19,16 +19,16 @@ class Response(object):
         return c
 
     @property
-    def code(self):
+    def status(self):
         return self.headers.get('status-code', 500)
 
     @property
-    def status(self):
-        return self.code
+    def code(self):
+        return self.status
 
     @property
     def status_code(self):
-        return self.code
+        return self.status
 
     def read(self):
         return self.content

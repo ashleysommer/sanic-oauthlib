@@ -47,12 +47,12 @@ class RedditOAuthRemoteApp(OAuthRemoteApp):
                 method=self.access_token_method,
             )
             # Reddit API is rate-limited, so if we get 429, we need to retry
-            if resp.code != 429:
+            if resp.status != 429:
                 break
             time.sleep(1)
 
         data = parse_response(resp, content, content_type=self.content_type)
-        if resp.code not in (200, 201):
+        if resp.status not in (200, 201):
             raise OAuthException(
                 'Invalid response from %s' % self.name,
                 type='invalid_response', data=data

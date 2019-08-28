@@ -76,7 +76,6 @@ class BaseSuite(asynctest.TestCase):
                 uri, headers=headers, data=data, **kwargs)
             content = await resp.text()
             # for compatible
-            resp.code = resp.status
             return resp, content
         return make_request
 

@@ -11,7 +11,7 @@ def create_client(app):
     oauth = spf.register_plugin(oauthclient)
 
     session = {}
-    #TODO: make a better client session
+    #TODO: make a better client session for tests
 
     remote = oauth.remote_app(
         'dev',
@@ -25,6 +25,14 @@ def create_client(app):
         authorize_url='http://127.0.0.1:5001/oauth2/authorize'
     )
 
+    @app.middleware
+    async def add_dummy_session(request):
+        context = oauth.context
+        shared_context = oauth.context.shared
+        shared_request_context = shared_context.request[id(request)]
+        shared_request_context['session'] = session
+
+
     @app.route('/')
     async def index(request):
         if 'dev_token' in session:
@@ -33,8 +41,9 @@ def create_client(app):
         return redirect(app.url_for('login'))
 
     @app.route('/login')
-    async def login(request):
-        return await remote.authorize(request, callback=app.url_for('authorized', _external=True, _scheme='http'))
+    @remote.autoauthorize
+    async def login(request, context):
+        return {'callback': app.url_for('authorized', _external=True, _scheme='http')}
 
     @app.route('/logout')
     def logout(request):
@@ -42,16 +51,17 @@ def create_client(app):
         return redirect(app.url_for('index'))
 
     @app.route('/authorized')
-    async def authorized(request):
-        resp = await remote.authorized_response(request)
-        if resp is None:
+    @remote.authorized_handler
+    async def authorized(request, data, context):
+        if data is None:
             return text('Access denied: error=%s' % (
                 request.args['error']
             ))
-        if isinstance(resp, dict) and 'access_token' in resp:
-            session['dev_token'] = (resp['access_token'], '')
-            return json(resp)
-        return text(str(resp))
+        #Oauth2 response is JSON
+        if 'access_token' in data:
+            session['dev_token'] = (data['access_token'], '')
+            return json(data)
+        return text(str(data))
 
     @app.route('/client')
     async def client_method(request):

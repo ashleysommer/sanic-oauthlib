@@ -9,7 +9,8 @@
 """
 
 import logging
-
+from inspect import isawaitable
+from asyncio import iscoroutinefunction
 import aiohttp
 import oauthlib.oauth1
 import oauthlib.oauth2
@@ -29,9 +30,6 @@ from urllib.parse import parse_qs, urljoin, quote, parse_qsl
 log = logging.getLogger('sanic_oauthlib')
 
 __all__ = ('OAuthClient', 'OAuthRemoteApp', 'OAuthResponse', 'OAuthException')
-
-session = {}
-#TODO make a better client session
 
 class OAuthClientAssociated(PluginAssociated):
 
@@ -251,9 +249,7 @@ class OAuthException(RuntimeError):
         self.data = data
 
     def __str__(self):
-        if PY3:
-            return self.message
-        return self.message.encode('utf-8')
+        return self.message
 
     def __unicode__(self):
         return self.message
@@ -478,7 +474,7 @@ class OAuthRemoteApp(object):
 
         log.debug('Request %r with %r method' % (uri, method))
         http_session = aiohttp.ClientSession()
-        resp = await http_session.request(method, uri, headers=headers, data=data)
+        resp = await http_session._request(method, uri, headers=headers, data=data)
         content = await resp.text()
         return resp, content
 
@@ -577,11 +573,12 @@ class OAuthRemoteApp(object):
         )
         return OAuthResponse(resp, content, self.content_type)
 
-    async def authorize(self, request, callback=None, state=None, **kwargs):
+    async def authorize(self, request, session, callback=None, state=None, **kwargs):
         """
         Returns a redirect response to the remote authorization URL with
         the signed callback given.
 
+        :param session: the current request session dict
         :param callback: a redirect url for the callback
         :param state: an optional value to embed in the OAuth request.
                       Use this if you want to pass around application
@@ -591,8 +588,8 @@ class OAuthRemoteApp(object):
         params = dict(self.request_token_params) or {}
         params.update(**kwargs)
 
-        if self.request_token_url:
-            token = (await self.generate_request_token(request, callback))[0]
+        if self.request_token_url:  # Here we must be OAuth1
+            token = (await self.generate_request_token(request, session, callback))[0]
             url = '%s?oauth_token=%s' % (
                 self.expand_url(self.authorize_url), quote(token)
             )
@@ -634,6 +631,23 @@ class OAuthRemoteApp(object):
             )
         return redirect(url)
 
+    def autoauthorize(self, f):
+        context = self.oauth.context
+        is_coro = iscoroutinefunction(f)
+        @wraps(f)
+        async def wrapper(request, *args, **kwargs):
+            nonlocal self, f, context, is_coro
+            shared_request = context.shared.request[id(request)]
+            session = getattr(shared_request, 'session', {})
+            if is_coro:
+                auth_args = await f(request, context, *args, **kwargs)
+            else:
+                auth_args = f(request, context, *args, **kwargs)
+            if isawaitable(auth_args):
+                auth_args = await auth_args
+            return await self.authorize(request, session, **auth_args)
+        return wrapper
+
     def tokengetter(self, f):
         """
         Register a function as token getter.
@@ -644,7 +658,7 @@ class OAuthRemoteApp(object):
     def expand_url(self, url):
         return urljoin(self.base_url, url)
 
-    async def generate_request_token(self, request, callback=None):
+    async def generate_request_token(self, request, session, callback=None):
         # for oauth1 only
         if callback is not None:
             callback = urljoin(request.url, callback)
@@ -691,7 +705,7 @@ class OAuthRemoteApp(object):
             raise OAuthException('No token available', type='token_missing')
         return rv
 
-    async def handle_oauth1_response(self, args):
+    async def handle_oauth1_response(self, session, args):
         """Handles an oauth1 authorization response."""
         client = self.make_client()
         client.verifier = args.get('oauth_verifier')
@@ -722,7 +736,7 @@ class OAuthRemoteApp(object):
             )
         return data
 
-    async def handle_oauth2_response(self, args):
+    async def handle_oauth2_response(self, session, args):
         """Handles an oauth2 authorization response."""
 
         client = self.make_client()
@@ -770,14 +784,14 @@ class OAuthRemoteApp(object):
         """Handles a unknown authorization response."""
         return None
 
-    async def authorized_response(self, request, args=None):
+    async def authorized_response(self, request, session, args=None):
         """Handles authorization response smartly."""
         if args is None:
             args = request.args
         if 'oauth_verifier' in args:
-            data = await self.handle_oauth1_response(args)
+            data = await self.handle_oauth1_response(session, args)
         elif 'code' in args:
-            data = await self.handle_oauth2_response(args)
+            data = await self.handle_oauth2_response(session, args)
         else:
             data = self.handle_unknown_response()
 
@@ -787,19 +801,22 @@ class OAuthRemoteApp(object):
         return data
 
     def authorized_handler(self, f):
-        """Handles an OAuth callback.
-
-        .. versionchanged:: 0.7
-           @authorized_handler is deprecated in favor of authorized_response.
-        """
+        """Handles an OAuth callback."""
+        context = self.oauth.context
+        is_coro = iscoroutinefunction(f)
         @wraps(f)
-        def decorated(*args, **kwargs):
-            log.warn(
-                '@authorized_handler is deprecated in favor of '
-                'authorized_response'
-            )
-            data = self.authorized_response()
-            return f(*((data,) + args), **kwargs)
+        async def decorated(request, *args, **kwargs):
+            nonlocal self, f, context, is_coro
+            shared_request = context.shared.request[id(request)]
+            session = getattr(shared_request, 'session', {})
+            data = await self.authorized_response(request, session)
+            if is_coro:
+                res = await f(request, data, context, *args, **kwargs)
+            else:
+                res = f(request, data, context, *args, **kwargs)
+            if isawaitable(res):
+                res = await res
+            return res
         return decorated
 
 

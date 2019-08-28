@@ -6,7 +6,6 @@ from sanic import Sanic
 from sanic.response import json, HTTPResponse
 from sanic_jinja2_spf import sanic_jinja2
 from spf import SanicPluginsFramework
-from sanic_session_spf import session
 
 from sanic_oauthlib.contrib.oauth2 import bind_sqlalchemy, bind_cache_grant
 from sanic_oauthlib.provider import oauth2provider
@@ -34,8 +33,6 @@ class DB(object):
 
     def drop_all(self):
         self.Base.metadata.drop_all(self.engine)
-
-
 
 db = DB('sqlite://')
 

@@ -3,7 +3,6 @@ import asyncio
 import time
 
 from asynctest import CoroutineMock
-from pytest import raises
 from sanic import Sanic
 from spf import SanicPluginsFramework
 
@@ -12,7 +11,6 @@ from pytest_sanic.utils import TestClient as SanicTestClient
 from .server import create_server, db
 from .client import create_client
 from .._base import BaseSuite, clean_url
-from .._base import to_unicode as u
 
 
 class OAuthSuite(BaseSuite):

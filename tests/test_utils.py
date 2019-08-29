@@ -16,7 +16,7 @@ REQUEST_DEFAULTS = {
     "VERSION": b"1.1",
     "SCHEME": b"http",
     "HOST": b"127.0.0.1",
-    "PORT": 5000,
+    "PORT": 80,
     "PATH": b"/",
     "QUERY_STRING": b"",
 }

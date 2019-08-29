@@ -10,33 +10,45 @@ def _get_uri_from_request(request):
     """
     The uri returned from request.uri is not properly urlencoded
     (sometimes it's partially urldecoded) This is a weird hack to get
-    werkzeug to return the proper urlencoded string uri
+    sanic to return the proper urlencoded string uri
     """
     uri = request._parsed_url.path
     if request._parsed_url.query:
         uri = uri+b'?'+request._parsed_url.query
     try:
+        # these work on Sanic 19.6.1 and above
         server_name = request.server_name
-    except AttributeError:
-        server_name = request.host
-    port_included = True
-    if ":" in server_name:
-        server_name, port = server_name.split(':', 1)
-    else:
+        server_port = request.server_port
+        scheme = request.scheme
+    except (AttributeError, NotImplementedError):
+        override_server_name = request.app.config.get("SERVER_NAME", False)
+        requested_host = request.host
+        server_name = (override_server_name
+            or request.headers.get("x-forwarded-host")
+            or requested_host.split(":")[0])
+        forwarded_port = ((override_server_name.split(":")[1] if override_server_name and ":" in override_server_name else None)
+            or request.headers.get("x-forwarded-port")
+            or (requested_host.split(":")[1] if ":" in requested_host else None))
         try:
-            port = request.server_port
-            assert port is not None
-            assert port > 0
-        except Exception:
-            port = 80
-        if request.scheme == "https" and port == 443:
-            port_included = False
-        elif request.scheme == "http" and port == 80:
-            port_included = False
+            server_port = ((int(forwarded_port) if forwarded_port else None)
+                           or request._parsed_url.port
+                           or request.transport.get_extra_info("sockname")[1])
+        except NotImplementedError:
+            server_port = 80
 
-    if port_included:
-        return request.scheme + "://" + server_name + ':' + str(port) + uri.decode('utf-8')
-    return request.scheme + "://" + server_name + uri.decode('utf-8')
+        scheme = (request.headers.get("x-forwarded-proto")
+                  or request.scheme)
+    if ":" in server_name:
+        server_name, server_port = server_name.split(":", 1)
+    include_port = True
+    if scheme == "https" and server_port == 443:
+        include_port = False
+    elif scheme == "http" and server_port == 80:
+        include_port = False
+
+    if include_port:
+        return scheme + "://" + server_name + ':' + str(server_port) + uri.decode('utf-8')
+    return scheme + "://" + server_name + uri.decode('utf-8')
 
 
 

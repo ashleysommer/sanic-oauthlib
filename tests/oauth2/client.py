@@ -86,7 +86,7 @@ def create_client(app):
         return text(ret.raw_data)
 
     @remote.tokengetter
-    def get_oauth_token():
+    async def get_oauth_token():
         return session.get('dev_token')
 
     return remote

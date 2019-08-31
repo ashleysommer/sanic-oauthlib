@@ -532,7 +532,7 @@ class OAuthRemoteApp(object):
 
         headers = dict(headers or {})
         if token is None:
-            token = self.get_request_token()
+            token = await self.get_request_token()
 
         client = self.make_client(token)
         url = self.expand_url(url)
@@ -698,9 +698,14 @@ class OAuthRemoteApp(object):
         session['%s_oauthtok' % self.name] = tup
         return tup
 
-    def get_request_token(self):
+    async def get_request_token(self):
         assert self._tokengetter is not None, 'missing tokengetter'
-        rv = self._tokengetter()
+        if iscoroutinefunction(self._tokengetter):
+            rv = await self._tokengetter()
+        else:
+            rv = self._tokengetter()
+        if isawaitable(rv):
+            rv = await rv
         if rv is None:
             raise OAuthException('No token available', type='token_missing')
         return rv

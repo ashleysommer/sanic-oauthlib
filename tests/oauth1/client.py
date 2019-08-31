@@ -99,7 +99,7 @@ def create_client(app, oauth=None, remote=None):
         return text(ret.raw_data)
 
     @remote.tokengetter
-    def get_oauth_token():
+    async def get_oauth_token():
         if 'dev_oauth' in session:
             resp = session['dev_oauth']
             return resp['oauth_token'], resp['oauth_token_secret']

@@ -1008,6 +1008,15 @@ class OAuth2RequestValidator(RequestValidator):
         request.state = kwargs.get('state')
         request.user = grant.user
         request.scopes = grant.scopes
+        #If PKCE is enabled (see 'is_pkce_required' and 'save_authorization_code')
+        #you MUST set the following based on the information stored:
+        #    - request.code_challenge
+        #    - request.code_challenge_method
+        _code_challenge = getattr(grant, 'code_challenge', None)
+        _code_challenge_method = getattr(grant, 'code_challenge_method', None)
+        if _code_challenge and _code_challenge_method:
+            request.code_challenge = _code_challenge
+            request.code_challenge_method = _code_challenge_method
         return True
 
     def validate_grant_type(self, client_id, grant_type, client, request,
@@ -1141,4 +1150,22 @@ class OAuth2RequestValidator(RequestValidator):
         log.debug(msg)
         request.error_message = msg
         return False
+
+    def is_pkce_required(self, client_id, request):
+        client = self._clientgetter(client_id)
+        return bool(getattr(client, 'pkce_required', False))
+
+    def get_code_challenge(self, code, request):
+        #grant = self._grantgetter(client_id=request.client_id, code=code)
+        #_code_challenge = getattr(grant, 'code_challenge', None)
+        # in theory, the "code_challenge" will be stored on the `request`
+        # here, because we've already run `validate_code` above.
+        return request.code_challenge or None
+
+    def get_code_challenge_method(self, code, request):
+        #grant = self._grantgetter(client_id=request.client_id, code=code)
+        #_code_challenge_method = getattr(grant, 'code_challenge_method', None)
+        # in theory the "code_challenge_method" will be stored on the `request`
+        # here, because we've already run `validate_code` above.
+        return request.code_challenge_method or None
 

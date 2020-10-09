@@ -3,7 +3,7 @@ import os
 from datetime import datetime, timedelta
 from sanic import Sanic
 from sanic.response import json, HTTPResponse
-from sanic_jinja2_spf import sanic_jinja2
+from sanic_jinja2_spf import sanic_jinja2, FileSystemLoader
 from spf import SanicPluginsFramework
 
 from sanic_oauthlib.contrib.oauth2 import bind_sqlalchemy, bind_cache_grant
@@ -236,7 +236,10 @@ def create_server(app, oauth=None):
     if oauth is None:
         oauth = default_provider(app)
     spf = SanicPluginsFramework(app)
-    jinja2 = spf.register_plugin(sanic_jinja2, enable_async=True)
+    here = os.path.dirname(os.path.abspath(__file__))
+    loader = FileSystemLoader(os.path.join(here, "templates"))
+    jinja2 = spf.register_plugin(sanic_jinja2,
+                                 enable_async=True, loader=loader)
 
     @app.middleware
     def load_current_user(request):

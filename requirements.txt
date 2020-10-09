@@ -1,8 +1,8 @@
-sanic>=0.8.3
-sanic-plugins-framework>=0.8.2
-sanic_session_spf
-sanic_jinja2_spf
-oauthlib==2.0.6
+sanic>=18.12
+sanic-plugins-framework>=0.9.0
+sanic_session_spf>=0.5.1
+sanic_jinja2_spf>=0.8.0
+oauthlib==3.1.0
 aiohttp
 
 

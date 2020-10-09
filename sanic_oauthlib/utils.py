@@ -3,7 +3,7 @@
 import base64
 import importlib
 from sanic.response import HTTPResponse
-from oauthlib.common import to_unicode, bytes_type
+from oauthlib.common import to_unicode
 
 
 def _get_uri_from_request(request):
@@ -75,7 +75,7 @@ def to_bytes(text, encoding='utf-8'):
     """Make sure text is bytes type."""
     if not text:
         return text
-    if not isinstance(text, bytes_type):
+    if not isinstance(text, bytes):
         text = text.encode(encoding)
     return text
 

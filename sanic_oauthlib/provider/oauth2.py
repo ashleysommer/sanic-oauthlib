@@ -404,6 +404,7 @@ class OAuth2ProviderAssociated(PluginAssociated):
 
             if request.method in ('GET', 'HEAD'):
                 redirect_uri = request.args.get('redirect_uri', self.error_uri)
+                state = request.args.get('state', None)
                 log.debug('Found redirect_uri %s.', redirect_uri)
                 try:
                     ret = server.validate_authorization_request(
@@ -420,7 +421,6 @@ class OAuth2ProviderAssociated(PluginAssociated):
                 except oauth2.OAuth2Error as e:
                     log.debug('OAuth2Error: %r', e, exc_info=True)
                     # on auth error, we should preserve state if it's present according to RFC 6749
-                    state = request.args.get('state')
                     if state and not e.state:
                         e.state = state  # set e.state so e.in_uri() can add the state query parameter to redirect uri
                     return plug._on_exception(context, e, e.in_uri(redirect_uri))
@@ -432,9 +432,10 @@ class OAuth2ProviderAssociated(PluginAssociated):
                     ))
 
             else:
-                redirect_uri = request.args.get(
-                    'redirect_uri', self.error_uri
-                )
+                redirect_uri = request.form.get('redirect_uri',
+                    request.args.get('redirect_uri', self.error_uri))
+                state = request.form.get('state',
+                    request.args.get('state', None))
 
             try:
                 rv = f(request, *args, context=context, **kwargs)
@@ -446,7 +447,6 @@ class OAuth2ProviderAssociated(PluginAssociated):
             except oauth2.OAuth2Error as e:
                 log.debug('OAuth2Error: %r', e, exc_info=True)
                 # on auth error, we should preserve state if it's present according to RFC 6749
-                state = request.args.get('state')
                 if state and not e.state:
                     e.state = state  # set e.state so e.in_uri() can add the state query parameter to redirect uri
                 return plug._on_exception(context, e, e.in_uri(redirect_uri))
@@ -457,7 +457,7 @@ class OAuth2ProviderAssociated(PluginAssociated):
 
             if not rv:
                 # denied by user
-                e = oauth2.AccessDeniedError(state=request.args.get('state'))
+                e = oauth2.AccessDeniedError(state=state)
                 return plug._on_exception(context, e, e.in_uri(redirect_uri))
 
             return await plug.confirm_authorization_request(request, context, self)
@@ -996,7 +996,10 @@ class OAuth2RequestValidator(RequestValidator):
         log.debug(
             'Validate code for client %r and code %r', client.client_id, code
         )
-        grant = self._grantgetter(client_id=client.client_id, code=code)
+        try:
+            grant = self._grantgetter(client_id=client.client_id, code=code)
+        except KeyError:
+            grant = None
         if not grant:
             log.debug('Grant not found.')
             return False

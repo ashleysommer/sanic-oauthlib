@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from sanic import Sanic
 from sanic.response import HTTPResponse, json
 from spf import SanicPluginsFramework
-from sanic_jinja2_spf import sanic_jinja2
+from sanic_jinja2_spf import sanic_jinja2, FileSystemLoader
 from sanic_session_spf import session
 from sanic_oauthlib.provider import oauth2provider
 
@@ -66,6 +66,7 @@ class Client(MockDBObj):
         self.client_type = 'public'
         self._redirect_uris = None
         self.default_scope = 'email address'
+        self.pkce_required = True
         for k, v in kwargs.items():
             setattr(self, k, v)
         if self.id is None:
@@ -109,6 +110,9 @@ class Grant(MockDBObj):
         self.code = None
         self.redirect_uri = None
         self.scope = None
+        self.nonce = None
+        self.code_challenge = None
+        self.code_challenge_method = None
         self.expires = None
         for k, v in kwargs.items():
             setattr(self, k, v)
@@ -244,8 +248,8 @@ class Token(MockDBObj):
 
 app = Sanic(__name__)
 spf = SanicPluginsFramework(app)
-
-jinja2 = spf.register_plugin(sanic_jinja2, enable_async=True, pkg_path="../tests/oauth2/templates")
+loader = FileSystemLoader("../tests/oauth2/templates")
+jinja2 = spf.register_plugin(sanic_jinja2, enable_async=True, loader=loader)
 session = spf.register_plugin(session)
 oauth = spf.register_plugin(oauth2provider)
 class Globals(object):
@@ -279,6 +283,9 @@ def set_grant(client_id, code, request, *args, **kwargs):
         redirect_uri=request.redirect_uri,
         scope=' '.join(request.scopes),
         user_id=g.user.id,
+        nonce=code.get('nonce', None),
+        code_challenge=getattr(request, 'code_challenge', None),
+        code_challenge_method=getattr(request, 'code_challenge_method', None),
         expires=expires,
     )
 
@@ -369,6 +376,10 @@ def method_api(request):
 @oauth.invalid_response
 def require_oauth_invalid(req):
     return json({'message': req.error_message}, 401)
+
+@app.middleware('response')
+def add_cors(request, response):
+    response.headers['Access-Control-Allow-Origin'] = "*"
 
 def prepare_app(app):
 

@@ -163,6 +163,9 @@ def current_user():
 def cache_provider(app):
     spf = SanicPluginsFramework(app)
     oauth = spf.register_plugin(oauth2provider)
+    return oauth
+
+def bind_cache_provider(oauth, app):
     bind_sqlalchemy(oauth, db.session, user=User,
                     token=Token, client=Client, current_user=current_user)
 
@@ -268,7 +271,7 @@ def create_server(app, oauth=None):
         confirm = request.form.get('confirm', 'no')
         return confirm == 'yes'
 
-    @app.route('/oauth2/token', methods=['POST', 'GET', 'OPTIONS'])
+    @app.route('/oauth2/token', methods=['POST', 'OPTIONS'])
     @oauth.token_handler
     def access_token(request, context):
         return {}

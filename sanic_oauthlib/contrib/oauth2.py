@@ -48,7 +48,7 @@ class Grant(object):
         log.debug(
             "Deleting grant %s for client %s" % (self.code, self.client_id)
         )
-        self._cache.delete(self.key)
+        delattr(self._cache, self.key)
         return None
 
     @property
@@ -102,13 +102,13 @@ def bind_cache_grant(app, provider, current_user, config_prefix='OAUTH2'):
             user=current_user(),
         )
         log.debug("Set Grant Token with key %s" % grant.key)
-        cache.set(grant.key, dict(grant))
+        setattr(cache, grant.key, dict(grant))
 
     @provider.grantgetter
     def get(client_id, code):
         """Gets the grant token with the configured cache system"""
         grant = Grant(cache, client_id=client_id, code=code)
-        ret = cache.get(grant.key)
+        ret = getattr(cache, grant.key)
         if not ret:
             log.debug("Grant Token not found with key %s" % grant.key)
             return None

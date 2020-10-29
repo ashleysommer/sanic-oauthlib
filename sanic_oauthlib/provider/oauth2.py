@@ -479,6 +479,7 @@ class OAuth2ProviderAssociated(PluginAssociated):
                 return None
         """
         context = self.context
+        plug, reg = self
         @wraps(f)
         async def decorated(request, *args, **kwargs):
             nonlocal self, context
@@ -489,9 +490,16 @@ class OAuth2ProviderAssociated(PluginAssociated):
                 credentials = await credentials
             credentials = credentials or {}
             log.debug('Fetched extra credentials, %r.', credentials)
-            ret = server.create_token_response(
-                uri, http_method, body, headers, credentials
-            )
+            try:
+                ret = server.create_token_response(
+                    uri, http_method, body, headers, credentials
+                )
+            except oauth2.FatalClientError as e:
+                log.debug('Fatal client error %r', e, exc_info=True)
+                return plug._on_exception(context, e, e.in_uri(self.error_uri))
+            except oauth2.OAuth2Error as e:
+                log.debug('OAuth2Error: %r', e, exc_info=True)
+                return plug._on_exception(context, e)
             return create_response(*ret)
         return decorated
 

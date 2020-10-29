@@ -212,4 +212,4 @@ class TestInvalid(OAuthSuite):
             access_token_url='http://localhost/oauth/access_token',
             authorize_url='http://localhost/oauth/authorize'
         )
-        return create_client(app, remote)
+        return create_client(app, oauth, remote)

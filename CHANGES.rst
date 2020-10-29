@@ -1,6 +1,24 @@
 Sanic-OAuthLib Changelog
 ========================
 
+Version 0.2.2
+-------------
+
+Released on 29 October, 2020
+
+- Bump required version of Sanic to 19.12.3 minimum
+- This requires Python 3.6.1 or greater to run
+- Changed project to a PEP-517/PEP-519 project, using Poetry and pyproject.toml
+
+  - Removed setup.py and setup.cfg due to the above.
+  - Removed requirements.txt and requirements-dev.txt as per the above.
+
+- Fixed some tests that have been broken for a while
+- Removed Makefile, that wasn't used since Flask days
+- Removed tox.ini that was not used, and still had nose tests runner
+- Added flake8, mypy, and Black tests to the test runner
+
+
 Version 0.2.1
 -------------
 

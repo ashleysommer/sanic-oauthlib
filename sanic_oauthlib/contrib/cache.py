@@ -47,6 +47,18 @@ class SimpleCache(object):
             self._adj_threshold()
         return
 
+    def __delattr__(self, item):
+        try:
+            object.__delattr__(self, item)
+        except (AttributeError, ValueError):
+            try:
+                self._sc_key_list.remove(item)
+            except ValueError:
+                pass
+            del self._sc_cache[item]
+            self._adj_threshold()
+        return
+
     def _adj_threshold(self):
         while len(self._sc_key_list) > self._sc_threshold:
             first_key = self._sc_key_list.pop(0)
@@ -122,14 +134,16 @@ class FileSystemCache(object):
 
 
 class Cache(object):
+    __slots__ = ('config_prefix', 'config', 'cache')
+
     def __init__(self, app, config_prefix='OAUTHLIB', **kwargs):
         self.config_prefix = config_prefix
         self.config = app.config
 
         cache_type = '_%s' % self._config('type')
-        kwargs.update(dict(
-            default_timeout=self._config('DEFAULT_TIMEOUT', 100)
-        ))
+        # kwargs.update(dict(
+        #     default_timeout=self._config('DEFAULT_TIMEOUT', 100)
+        # ))
 
         try:
             self.cache = getattr(self, cache_type)(**kwargs)
@@ -139,6 +153,7 @@ class Cache(object):
             )
         app.extensions[config_prefix.lower() + '_cache'] = self.cache
 
+
     def __getattr__(self, key):
         try:
             return object.__getattribute__(self, key)
@@ -147,6 +162,25 @@ class Cache(object):
                 return getattr(self.cache, key)
             except AttributeError:
                 raise AttributeError('No such attribute: %s' % key)
+
+    def __setattr__(self, key, value):
+        try:
+            object.__setattr__(self, key, value)
+        except AttributeError:
+            try:
+                return setattr(self.cache, key, value)
+            except AttributeError:
+                raise AttributeError('Cannot set attribute: %s' % key)
+
+    def __delattr__(self, item):
+        try:
+            object.__delattr__(self, item)
+        except (AttributeError, ValueError):
+            try:
+                return delattr(self.cache, item)
+            except (AttributeError, ValueError, LookupError):
+                raise AttributeError('No such attribute: %s' % item)
+
 
     def _config(self, key, default='error'):
         key = key.upper()

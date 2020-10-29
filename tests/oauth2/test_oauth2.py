@@ -11,6 +11,7 @@ from .server import (
     create_server,
     db,
     cache_provider,
+    bind_cache_provider,
     sqlalchemy_provider,
     default_provider,
     Token
@@ -25,9 +26,12 @@ class OAuthSuite(BaseSuite):
     def database(self):
         return db
 
-    def create_oauth_provider(app):
+    def create_oauth_provider(self, app):
         raise NotImplementedError('Each test class must'
                                   'implement this method.')
+
+    async def bind_oauth_with_server(self, oauth, app):
+        pass
 
     def create_app(self):
         client_app = Sanic(__name__)
@@ -46,6 +50,7 @@ class OAuthSuite(BaseSuite):
             side_effect=self.patch_request(self.server_client)
         )
         await self.server_client.start_server()
+        await self.bind_oauth_with_server(oauth, server_app)
         return server_app
 
     async def tearDown(self):
@@ -223,6 +228,9 @@ class TestWebAuthCached(TestWebAuth):
     def create_oauth_provider(self, app):
         return cache_provider(app)
 
+    async def bind_oauth_with_server(self, oauth, app):
+        return bind_cache_provider(oauth, app)
+
 
 class TestWebAuthSQLAlchemy(TestWebAuth):
 
@@ -235,38 +243,37 @@ class TestRefreshToken(OAuthSuite):
     def create_oauth_provider(self, app):
         return default_provider(app)
 
-    def test_refresh_token_in_password_grant(self):
-        url = ('/oauth/token?grant_type=password'
-               '&scope=email+address&username=admin&password=admin')
-        rv = self.client.get(url, headers={
-            'Authorization': 'Basic %s' % auth_code,
+    async def test_refresh_token_in_password_grant(self):
+        resp, content = await self.oauth_client.http_request("/oauth2/token",
+            data={"grant_type": "password", "scope": "email+address", "username": "admin", "password": "admin"},
+            headers={'Authorization': 'Basic %s' % auth_code,}, method="POST")
+        assert b'access_token' in resp._body
+        data = json.loads(u(resp._body))
+
+        resp, content = await self.oauth_client.http_request('/oauth2/token', data={
+            "grant_type": "refresh_token",
+            "scope": data.get('scope').replace(' ', '+'),
+            "refresh_token":  data.get('refresh_token'),
+        }, headers={'Authorization': 'Basic %s' % auth_code,})
+        assert b'access_token' in resp._body
+
+
+    async def test_refresh_token_in_authorization_code(self):
+        resp, content = await self.oauth_client.http_request(authorize_url,
+                                                             data={'confirm': 'yes'}, method='post',
+                                                             allow_redirects=False)
+        location = resp.headers.get('Location')
+        rv = await self.client.get(clean_url(location))
+        await rv.read()
+        data = json.loads(u(rv._body))
+
+        resp, content = await self.oauth_client.http_request('/oauth2/token', data={
+            "grant_type": "refresh_token",
+            "scope": data.get('scope').replace(' ', '+'),
+            "refresh_token":  data.get('refresh_token'),
+            "client_id": "dev", "client_secret": "dev"
         })
-        assert b'access_token' in rv.data
-        data = json.loads(u(rv.data))
-
-        args = (data.get('scope').replace(' ', '+'),
-                data.get('refresh_token'))
-        url = ('/oauth/token?grant_type=refresh_token'
-               '&scope=%s&refresh_token=%s')
-        url = url % args
-        rv = self.client.get(url, headers={
-            'Authorization': 'Basic %s' % auth_code,
-        })
-        assert b'access_token' in rv.data
-
-    def test_refresh_token_in_authorization_code(self):
-        rv = self.client.post(authorize_url, data={'confirm': 'yes'})
-        rv = self.client.get(clean_url(location))
-        data = json.loads(u(rv.data))
-
-        args = (data.get('scope').replace(' ', '+'),
-                data.get('refresh_token'), 'dev', 'dev')
-        url = ('/oauth/token?grant_type=refresh_token'
-               '&scope=%s&refresh_token=%s'
-               '&client_id=%s&client_secret=%s')
-        url = url % args
-        rv = self.client.get(url)
-        assert b'access_token' in rv.data
+        assert b'access_token' in resp._body
 
 
 class TestRefreshTokenCached(TestRefreshToken):
@@ -349,7 +356,7 @@ class TestCredentialAuth(OAuthSuite):
     def test_get_access_token(self):
         url = ('/oauth/token?grant_type=client_credentials'
                '&scope=email+address')
-        rv = self.client.get(url, headers={
+        (rq, rv) = self.client.get(url, headers={
             'Authorization': 'Basic %s' % auth_code,
         })
         assert b'access_token' in rv.data
@@ -357,7 +364,7 @@ class TestCredentialAuth(OAuthSuite):
     def test_invalid_auth_header(self):
         url = ('/oauth/token?grant_type=client_credentials'
                '&scope=email+address')
-        rv = self.client.get(url, headers={
+        (rq, rv) = self.client.get(url, headers={
             'Authorization': 'Basic foobar'
         })
         assert b'invalid_client' in rv.data
@@ -366,7 +373,7 @@ class TestCredentialAuth(OAuthSuite):
         auth_code = to_base64('none:confidential')
         url = ('/oauth/token?grant_type=client_credentials'
                '&scope=email+address')
-        rv = self.client.get(url, headers={
+        (rq, rv) = self.client.get(url, headers={
             'Authorization': 'Basic %s' % auth_code,
         })
         assert b'invalid_client' in rv.data
@@ -375,7 +382,7 @@ class TestCredentialAuth(OAuthSuite):
         auth_code = to_base64('confidential:wrong')
         url = ('/oauth/token?grant_type=client_credentials'
                '&scope=email+address')
-        rv = self.client.get(url, headers={
+        (rq, rv) = self.client.get(url, headers={
             'Authorization': 'Basic %s' % auth_code,
         })
         assert b'invalid_client' in rv.data
@@ -404,8 +411,8 @@ class TestTokenGenerator(OAuthSuite):
         return default_provider(app)
 
     def test_get_access_token(self):
-        rv = self.client.post(authorize_url, data={'confirm': 'yes'})
-        rv = self.client.get(clean_url(location))
+        (rq, rv) = self.client.post(authorize_url, data={'confirm': 'yes'})
+        (rq, rv) = self.client.get(clean_url(location))
         data = json.loads(u(rv.data))
         assert data['access_token'] == 'foobar'
         assert data['refresh_token'] == 'foobar'
@@ -426,8 +433,8 @@ class TestRefreshTokenGenerator(OAuthSuite):
         return default_provider(app)
 
     def test_get_access_token(self):
-        rv = self.client.post(authorize_url, data={'confirm': 'yes'})
-        rv = self.client.get(clean_url(location))
+        (rq, rv) = self.client.post(authorize_url, data={'confirm': 'yes'})
+        (rq, rv) = self.client.get(clean_url(location))
         data = json.loads(u(rv.data))
         assert data['access_token'] == 'foobar'
         assert data['refresh_token'] == 'abracadabra'
@@ -438,26 +445,29 @@ class TestConfidentialClient(OAuthSuite):
     def create_oauth_provider(self, app):
         return default_provider(app)
 
-    def test_get_access_token(self):
+    async def test_get_access_token(self):
         url = ('/oauth/token?grant_type=authorization_code&code=12345'
                '&scope=email')
-        rv = self.client.get(url, headers={
+        rv = await self.client.get(url, headers={
             'Authorization': 'Basic %s' % auth_code
         })
+        await rv.read()
         assert b'access_token' in rv.data
 
-    def test_invalid_grant(self):
+    async def test_invalid_grant(self):
         url = ('/oauth/token?grant_type=authorization_code&code=54321'
                '&scope=email')
-        rv = self.client.get(url, headers={
+        rv = await self.client.get(url, headers={
             'Authorization': 'Basic %s' % auth_code
         })
+        await rv.read()
         assert b'invalid_grant' in rv.data
 
-    def test_invalid_client(self):
+    async def test_invalid_client(self):
         url = ('/oauth/token?grant_type=authorization_code&code=12345'
                '&scope=email')
-        rv = self.client.get(url, headers={
+        rv = await self.client.get(url, headers={
             'Authorization': 'Basic %s' % ('foo')
         })
+        await rv.read()
         assert b'invalid_client' in rv.data

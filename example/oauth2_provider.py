@@ -330,12 +330,12 @@ async def authorize(request, *args, context=None, **kwargs):
     confirm = request.form.get('confirm', 'no')
     return confirm == 'yes'
 
-@app.route('/oauth2/token', methods=['POST', 'GET'])
+@app.route('/oauth2/token', methods=['POST', 'OPTIONS'])
 @oauth.token_handler
 def access_token(request, context):
     return {}
 
-@app.route('/oauth2/revoke', methods=['POST'])
+@app.route('/oauth2/revoke', methods=['POST', ['OPTIONS']])
 @oauth.revoke_handler
 def revoke_token(_request):
     pass

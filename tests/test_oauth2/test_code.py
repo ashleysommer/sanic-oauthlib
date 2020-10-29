@@ -29,18 +29,18 @@ class TestDefaultProvider(TestCase):
         ) % oauth_client.client_id
 
     def test_get_authorize(self):
-        rv = self.client.get('/oauth/authorize')
+        (rq, rv) = self.client.get('/oauth/authorize')
         assert 'client_id' in rv.location
 
-        rv = self.client.get('/oauth/authorize?client_id=no')
+        (rq, rv) = self.client.get('/oauth/authorize?client_id=no')
         assert 'client_id' in rv.location
 
         url = '/oauth/authorize?client_id=%s' % self.oauth_client.client_id
-        rv = self.client.get(url)
+        (rq, rv) = self.client.get(url)
         assert 'error' in rv.location
 
-        rv = self.client.get(self.authorize_url)
-        assert b'confirm' in rv.data
+        (rq, rv) = self.client.get(self.authorize_url)
+        assert b'confirm' in rv.body
 
     def test_post_authorize(self):
         url = self.authorize_url + '&scope=foo'

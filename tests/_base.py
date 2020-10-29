@@ -3,14 +3,19 @@
 import base64
 import os
 import tempfile
-import asynctest
 import asyncio
+import pytest
+import asynctest
+
 from sanic_oauthlib.client import prepare_request
 from pytest_sanic.utils import TestClient as SanicTestClient
 from urllib.parse import urlparse
 
 # os.environ['DEBUG'] = 'true'
 # for oauthlib 0.6.3
+
+# All test coroutines will be treated as marked.
+pytestmark = pytest.mark.asyncio
 
 
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = 'true'
@@ -59,7 +64,7 @@ class BaseSuite(asynctest.TestCase):
     def create_app(self):
         raise NotImplementedError
 
-    def setup_app(self, app):
+    def setup_app(self, provider_app, client_app):
         raise NotImplementedError
 
     def patch_request(self, test_client):

@@ -7,6 +7,7 @@ from oauthlib.common import Request
 from sanic.server import serve, HttpProtocol
 from inspect import isawaitable
 from sanic.app import Sanic
+from sanic.compat import Header
 import socket
 import asyncio
 from aiohttp import ClientSession, CookieJar
@@ -36,7 +37,7 @@ def set_request(wsgi_environ, app=None, transport=None):
     Test helper context manager that mocks the sanic request
     """
     environ = {}
-    headers = {}
+    headers = Header()
     environ.update(wsgi_environ)
     for k, v in REQUEST_DEFAULTS.items():
         environ.setdefault(k, v)
@@ -85,7 +86,7 @@ class UtilsTestSuite(unittest.TestCase):
             self.assertEquals(uri, 'http://127.0.0.1/?test=foo&foo=bar')
             self.assertEquals(http_method, 'GET')
             self.assertEquals(body, {})
-            self.assertEquals(headers, {'Host': '127.0.0.1'})
+            self.assertEquals(headers, Header({'Host': '127.0.0.1'}))
 
     def test_extract_params_with_urlencoded_json(self):
         wsgi_environ = {

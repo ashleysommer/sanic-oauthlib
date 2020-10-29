@@ -25,14 +25,14 @@ class TestDefaultProvider(TestCase):
         self.oauth_client = oauth_client
 
     def test_get_token(self):
-        rv = self.client.post('/oauth/token', data={
+        (rq, rv) = self.client.post('/oauth/token', data={
             'grant_type': 'client_credentials',
             'client_id': self.oauth_client.client_id,
             'client_secret': self.oauth_client.client_secret,
         })
-        assert b'access_token' in rv.data
+        assert b'access_token' in rv.body
 
-        rv = self.client.post('/oauth/token', data={
+        (rq, rv) = self.client.post('/oauth/token', data={
             'grant_type': 'client_credentials'
         }, headers={
             'authorization': 'Basic ' + to_base64(
@@ -42,7 +42,7 @@ class TestDefaultProvider(TestCase):
                     )
                 )
         })
-        assert b'access_token' in rv.data
+        assert b'access_token' in rv.body
 
 
 class TestSQLAlchemyProvider(TestDefaultProvider):

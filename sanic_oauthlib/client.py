@@ -476,6 +476,7 @@ class OAuthRemoteApp(object):
         http_session = aiohttp.ClientSession()
         resp = await http_session._request(method, uri, headers=headers, data=data)
         content = await resp.text()
+        await http_session.close()
         return resp, content
 
     async def get(self, *args, **kwargs):

@@ -1,6 +1,87 @@
 Sanic-OAuthLib Changelog
 ========================
 
+Version 0.2.1
+-------------
+
+Released on 29 October, 2020
+
+- Pin aiohttp dependency to 3.6.3 to avoid further potentially breaking changes going forward
+- Add in explicit call to aiohttp client session .close() method to avoid an unclose session warning.
+
+REMINDER!: This is the final version of sanic-oauthlib that supports Python 3.5 and Sanic 18.12LTS.
+
+- All further releases will require python v3.6.1+ and sanic 19.12.3+.
+
+
+
+Version 0.2.0
+-------------
+
+Released on 10 October, 2020
+
+- Big bump in version of Oauthlib
+- Bump min version of Sanic and SPF and Sanic-Jinja2
+- Add support for PKCE extra-secure OAuth2 feature
+- Add support in the OAuth2 Server example for PKCE token flow
+
+
+Version 0.1.4
+-------------
+
+Released on 31 August, 2019
+
+- make the client's auto token getter an async function. Bump version
+
+
+Version 0.1.3
+-------------
+
+Released on 29 August, 2019
+
+- fix critical issues in _get_uri_from_request so it works properly if using x-forwaded-host, x-forwarded-proto, or x-forwarded-port, when you are using Sanic older than 19.6.1
+
+
+Version 0.1.2
+-------------
+
+Released on 28 August, 2019
+
+- switch all usages of resp.code to resp.status
+- Bump version for pypi release
+
+
+Version 0.1.1
+-------------
+
+Released on 28 August, 2019
+
+- Updates to oauth client, added some helper function wrappers
+- Updates to client tests
+- Bump version for pypi release
+
+
+Version 0.1.0.post3
+-------------------
+
+Released on 24 August, 2019
+
+- Don't recreate the fs cache if it already exists
+- tiny fixes, upload this to pypi
+
+
+Version 0.1.0.post2
+-------------------
+
+Released on 22 August, 2019
+
+- fix wording in licence
+- Fix URL construction where Port is known
+- Fix bugs in the Filesystem cache provider
+- Add ability to add credentials to a validator using the SPF shared context, and a session if one is in use
+- bump to .post2 version
+
+
 Version 0.1.0
 -------------
 

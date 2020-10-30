@@ -9,20 +9,21 @@
 """
 
 import logging
-from functools import wraps, lru_cache
+
+from functools import lru_cache, wraps
 from inspect import isawaitable
 
-from sanic.exceptions import Unauthorized
-from sanic.response import redirect, HTTPResponse
-from oauthlib.oauth1 import RequestValidator
+from oauthlib.common import add_params_to_uri, to_unicode, urlencode
+from oauthlib.oauth1 import SIGNATURE_HMAC, SIGNATURE_RSA, RequestValidator
 from oauthlib.oauth1 import WebApplicationServer as Server
-from oauthlib.oauth1 import SIGNATURE_HMAC, SIGNATURE_RSA
-from oauthlib.common import to_unicode, add_params_to_uri, urlencode
 from oauthlib.oauth1.rfc5849 import errors
+from sanic.exceptions import Unauthorized
+from sanic.response import HTTPResponse, redirect
 from spf import SanicPlugin
 from spf.plugin import PluginAssociated
 
-from ..utils import extract_params, create_response
+from ..utils import create_response, extract_params
+
 
 SIGNATURE_METHODS = (SIGNATURE_HMAC, SIGNATURE_RSA)
 

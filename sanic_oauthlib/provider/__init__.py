@@ -10,5 +10,5 @@
 """
 
 # flake8: noqa
-from .oauth1 import OAuth1Provider, oauth1provider, OAuth1ProviderAssociated, OAuth1RequestValidator
-from .oauth2 import OAuth2Provider, oauth2provider, OAuth2ProviderAssociated, OAuth2RequestValidator
+from .oauth1 import OAuth1Provider, OAuth1ProviderAssociated, OAuth1RequestValidator, oauth1provider
+from .oauth2 import OAuth2Provider, OAuth2ProviderAssociated, OAuth2RequestValidator, oauth2provider

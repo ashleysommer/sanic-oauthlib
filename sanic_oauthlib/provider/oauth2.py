@@ -8,21 +8,23 @@
     :copyright: (c) 2013 - 2014 by Hsiaoming Yang.
 """
 
-import os
-import logging
 import datetime
-from functools import wraps, lru_cache
+import logging
+import os
+
+from functools import lru_cache, wraps
 from inspect import isawaitable
 
+from oauthlib import oauth2
+from oauthlib.common import add_params_to_uri
+from oauthlib.oauth2 import RequestValidator, Server
 from sanic import response
 from sanic.exceptions import Unauthorized
 from spf import SanicPlugin
-from oauthlib import oauth2
-from oauthlib.oauth2 import RequestValidator, Server
-from oauthlib.common import add_params_to_uri
 from spf.plugin import PluginAssociated
 
-from ..utils import extract_params, create_response, import_string
+from ..utils import create_response, extract_params, import_string
+
 
 __all__ = ('OAuth2Provider', 'OAuth2RequestValidator')
 

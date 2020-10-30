@@ -2,8 +2,9 @@
 
 import base64
 import importlib
-from sanic.response import HTTPResponse
+
 from oauthlib.common import to_unicode
+from sanic.response import HTTPResponse
 
 
 def _get_uri_from_request(request):

@@ -9,23 +9,27 @@
 """
 
 import logging
-from inspect import isawaitable
+
 from asyncio import iscoroutinefunction
+from copy import copy
+from functools import lru_cache, wraps
+from inspect import isawaitable
+from json import dumps as json_dumps
+from json import loads as json_loads
+from urllib.parse import parse_qs, quote, urljoin
+
 import httpx
 import oauthlib.oauth1
 import oauthlib.oauth2
-from copy import copy
-from functools import wraps, lru_cache
-from oauthlib.common import to_unicode, add_params_to_uri, urlencode
+
+from oauthlib.common import add_params_to_uri, to_unicode, urlencode
 from sanic.request import RequestParameters
 from sanic.response import redirect
 from spf import SanicPlugin
-from json import loads as json_loads
-from json import dumps as json_dumps
 from spf.plugin import PluginAssociated
 
 from .utils import to_bytes
-from urllib.parse import parse_qs, urljoin, quote
+
 
 log = logging.getLogger('sanic_oauthlib')
 

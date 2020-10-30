@@ -68,7 +68,8 @@ sanic-plugins-framework = ">=0.9.4,<1.0"
 sanic_session_spf = ">=0.5.1"
 sanic_jinja2_spf = ">=0.8.0"
 oauthlib = "3.1.0"
-httpx = "==0.9.3 || ==0.11.1 || ==0.15.4 || >0.16.1,<1.0.0"
+# ideally would like to pin httpx to v0.16.1, but different versions of Sanic like to pin too.
+httpx = ">=0.9.3,<1.0.0"
 
 [tool.poetry.dev-dependencies]
 pip = ">=19.3"

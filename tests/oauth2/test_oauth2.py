@@ -245,14 +245,14 @@ class TestRefreshToken(OAuthSuite):
 
     async def test_refresh_token_in_password_grant(self):
         resp, content = await self.oauth_client.http_request("/oauth2/token",
-            data={"grant_type": "password", "scope": "email+address", "username": "admin", "password": "admin"},
+            data={"grant_type": "password", "scope": "email address", "username": "admin", "password": "admin"},
             headers={'Authorization': 'Basic %s' % auth_code,}, method="POST")
         assert b'access_token' in resp._body
         data = json.loads(u(resp._body))
 
         resp, content = await self.oauth_client.http_request('/oauth2/token', data={
             "grant_type": "refresh_token",
-            "scope": data.get('scope').replace(' ', '+'),
+            "scope": data.get('scope'),
             "refresh_token":  data.get('refresh_token'),
         }, headers={'Authorization': 'Basic %s' % auth_code,})
         assert b'access_token' in resp._body
@@ -269,7 +269,7 @@ class TestRefreshToken(OAuthSuite):
 
         resp, content = await self.oauth_client.http_request('/oauth2/token', data={
             "grant_type": "refresh_token",
-            "scope": data.get('scope').replace(' ', '+'),
+            "scope": data.get('scope'),
             "refresh_token":  data.get('refresh_token'),
             "client_id": "dev", "client_secret": "dev"
         })

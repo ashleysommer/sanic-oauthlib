@@ -11,28 +11,28 @@
 import logging
 from inspect import isawaitable
 from asyncio import iscoroutinefunction
-import aiohttp
+import httpx
 import oauthlib.oauth1
 import oauthlib.oauth2
 from copy import copy
 from functools import wraps, lru_cache
 from oauthlib.common import to_unicode, add_params_to_uri, urlencode
 from sanic.request import RequestParameters
-from sanic.response import redirect, json
+from sanic.response import redirect
 from spf import SanicPlugin
 from json import loads as json_loads
 from json import dumps as json_dumps
 from spf.plugin import PluginAssociated
 
 from .utils import to_bytes
-from urllib.parse import parse_qs, urljoin, quote, parse_qsl
+from urllib.parse import parse_qs, urljoin, quote
 
 log = logging.getLogger('sanic_oauthlib')
 
 __all__ = ('OAuthClient', 'OAuthRemoteApp', 'OAuthResponse', 'OAuthException')
 
-class OAuthClientAssociated(PluginAssociated):
 
+class OAuthClientAssociated(PluginAssociated):
     def __new__(cls, oauth_plugin, plugin_reg, **kwargs):
         assert isinstance(oauth_plugin, OAuthClient)
         cached = getattr(cls, 'cached', None)
@@ -41,8 +41,7 @@ class OAuthClientAssociated(PluginAssociated):
             setattr(cls, 'cached', cached)
         if plugin_reg in cached:
             return cached[plugin_reg]
-        self = super(OAuthClientAssociated, cls).\
-            __new__(cls, oauth_plugin, plugin_reg, **kwargs)
+        self = super(OAuthClientAssociated, cls).__new__(cls, oauth_plugin, plugin_reg, **kwargs)
         cached[plugin_reg] = self
         return self
 
@@ -96,6 +95,7 @@ class OAuthClient(SanicPlugin):
 
         oauth = OAuth(app)
     """
+
     __slots__ = ("_lazy_load_apps",)
 
     AssociatedTuple = OAuthClientAssociated
@@ -174,6 +174,7 @@ def parse_options_header(ct):
         options[k.strip()] = v.strip()
     return ct, options
 
+
 def parse_response(resp, content, strict=False, content_type=None):
     """Parse the response returned by :meth:`OAuthRemoteApp.http_request`.
 
@@ -231,10 +232,7 @@ class OAuthResponse(object):
     def __init__(self, resp, content, content_type=None):
         self._resp = resp
         self.raw_data = content
-        self.data = parse_response(
-            resp, content, strict=True,
-            content_type=content_type,
-        )
+        self.data = parse_response(resp, content, strict=True, content_type=content_type,)
 
     @property
     def status(self):
@@ -287,8 +285,11 @@ class OAuthRemoteApp(object):
     :param app_key: lazy load configuration from Flask app config with
                     this app key
     """
+
     def __init__(
-        self, oauth, name,
+        self,
+        oauth,
+        name,
         base_url=None,
         request_token_url=None,
         access_token_url=None,
@@ -324,7 +325,6 @@ class OAuthRemoteApp(object):
         self._access_token_headers = access_token_headers or {}
         self._content_type = content_type
         self._tokengetter = None
-
         self.app_key = app_key
         self.encoding = encoding
 
@@ -335,16 +335,11 @@ class OAuthRemoteApp(object):
             if signature_method == oauthlib.oauth1.SIGNATURE_RSA:
                 # check for consumer_key and rsa_key
                 if not consumer_key or not rsa_key:
-                    raise TypeError(
-                        "OAuthRemoteApp with RSA authentication requires "
-                        "consumer key and rsa key"
-                    )
+                    raise TypeError("OAuthRemoteApp with RSA authentication requires " "consumer key and rsa key")
             else:
                 # check for consumer_key and consumer_secret
                 if not consumer_key or not consumer_secret:
-                    raise TypeError(
-                        "OAuthRemoteApp requires consumer key and secret"
-                    )
+                    raise TypeError("OAuthRemoteApp requires consumer key and secret")
 
     @property
     @lru_cache()
@@ -450,33 +445,34 @@ class OAuthRemoteApp(object):
         if self.request_token_url:
             # get params for client
             params = self.get_oauth1_client_params(token)
-            client = oauthlib.oauth1.Client(
-                client_key=self.consumer_key,
-                client_secret=self.consumer_secret,
-                **params
-            )
+            client = oauthlib.oauth1.Client(client_key=self.consumer_key, client_secret=self.consumer_secret, **params)
         else:
             if token:
                 if isinstance(token, (tuple, list)):
                     token = {'access_token': token[0]}
                 elif isinstance(token, str):
                     token = {'access_token': token}
-            client = oauthlib.oauth2.WebApplicationClient(
-                self.consumer_key, token=token
-            )
+            client = oauthlib.oauth2.WebApplicationClient(self.consumer_key, token=token)
         return client
 
-    @staticmethod
-    async def http_request(uri, headers=None, data=None, method=None):
-        uri, headers, data, method = prepare_request(
-            uri, headers, data, method
-        )
-
-        log.debug('Request %r with %r method' % (uri, method))
-        http_session = aiohttp.ClientSession()
-        resp = await http_session._request(method, uri, headers=headers, data=data)
-        content = await resp.text()
-        await http_session.close()
+    @classmethod
+    async def http_request(cls, uri, headers=None, data=None, method=None) -> "Tuple[httpx.Response, str]":
+        client = httpx.AsyncClient()
+        client = await client.__aenter__()
+        try:
+            uri, headers, data, method = prepare_request(uri, headers, data, method)
+            log.debug('Request %r with %r method' % (uri, method))
+            req = client.build_request(method, uri, headers=headers, data=data)
+            resp = await client.send(req, stream=True)
+            try:
+                await resp.aread()
+            finally:
+                await resp.aclose()
+        finally:
+            await client.__aexit__()
+        content = resp.text
+        if not hasattr(resp, 'status'):
+            setattr(resp, 'status', resp.status_code)
         return resp, content
 
     async def get(self, *args, **kwargs):
@@ -514,8 +510,9 @@ class OAuthRemoteApp(object):
         kwargs['method'] = 'PATCH'
         return await self.request(*args, **kwargs)
 
-    async def request(self, url, data=None, headers=None, format='urlencoded',
-                method='GET', content_type=None, token=None):
+    async def request(
+        self, url, data=None, headers=None, format='urlencoded', method='GET', content_type=None, token=None
+    ):
         """
         Sends a request to the remote server with OAuth tokens attached.
 
@@ -550,14 +547,10 @@ class OAuthRemoteApp(object):
 
         if self.request_token_url:
             # oauth1
-            uri, headers, body = client.sign(
-                url, http_method=method, body=data, headers=headers
-            )
+            uri, headers, body = client.sign(url, http_method=method, body=data, headers=headers)
         else:
             # oauth2
-            uri, headers, body = client.add_token(
-                url, http_method=method, body=data, headers=headers
-            )
+            uri, headers, body = client.add_token(url, http_method=method, body=data, headers=headers)
 
         if hasattr(self, 'pre_request'):
             # This is designed for some rubbish services like weibo.
@@ -569,9 +562,7 @@ class OAuthRemoteApp(object):
             data = to_bytes(body, self.encoding)
         else:
             data = None
-        resp, content = await self.http_request(
-            uri, headers, data=to_bytes(body, self.encoding), method=method
-        )
+        resp, content = await self.http_request(uri, headers, data=to_bytes(body, self.encoding), method=method)
         return OAuthResponse(resp, content, self.content_type)
 
     async def authorize(self, request, session, callback=None, state=None, **kwargs):
@@ -591,11 +582,9 @@ class OAuthRemoteApp(object):
 
         if self.request_token_url:  # Here we must be OAuth1
             token = (await self.generate_request_token(request, session, callback))[0]
-            url = '%s?oauth_token=%s' % (
-                self.expand_url(self.authorize_url), quote(token)
-            )
+            url = '%s?oauth_token=%s' % (self.expand_url(self.authorize_url), quote(token))
             if params:
-                tuple_list = [(k,v) for k,v in params.items()]
+                tuple_list = [(k, v) for k, v in params.items()]
                 url += '&' + urlencode(tuple_list)
         else:
             assert callback is not None, 'Callback is required for OAuth2'
@@ -624,17 +613,14 @@ class OAuthRemoteApp(object):
 
             session['%s_oauthredir' % self.name] = callback
             url = client.prepare_request_uri(
-                self.expand_url(self.authorize_url),
-                redirect_uri=callback,
-                scope=scope,
-                state=state,
-                **params
+                self.expand_url(self.authorize_url), redirect_uri=callback, scope=scope, state=state, **params
             )
         return redirect(url)
 
     def autoauthorize(self, f):
         context = self.oauth.context
         is_coro = iscoroutinefunction(f)
+
         @wraps(f)
         async def wrapper(request, *args, **kwargs):
             nonlocal self, f, context, is_coro
@@ -647,6 +633,7 @@ class OAuthRemoteApp(object):
             if isawaitable(auth_args):
                 auth_args = await auth_args
             return await self.authorize(request, session, **auth_args)
+
         return wrapper
 
     def tokengetter(self, f):
@@ -672,28 +659,19 @@ class OAuthRemoteApp(object):
         if not realm and realms:
             realm = ' '.join(realms)
         uri, headers, _ = client.sign(
-            self.expand_url(self.request_token_url),
-            http_method=self.request_token_method,
-            realm=realm,
+            self.expand_url(self.request_token_url), http_method=self.request_token_method, realm=realm,
         )
         log.debug('Generate request token header %r', headers)
-        resp, content = await self.http_request(
-            uri, headers, method=self.request_token_method,
-        )
+        resp, content = await self.http_request(uri, headers, method=self.request_token_method,)
         data = parse_response(resp, content)
         if not data:
-            raise OAuthException(
-                'Invalid token response from %s' % self.name,
-                type='token_generation_failed'
-            )
+            raise OAuthException('Invalid token response from %s' % self.name, type='token_generation_failed')
         if resp.status not in (200, 201):
             message = 'Failed to generate request token'
             if 'oauth_problem' in data:
                 message += ' (%s)' % data['oauth_problem']
             raise OAuthException(
-                message,
-                type='token_generation_failed',
-                data=data,
+                message, type='token_generation_failed', data=data,
             )
         tup = (data.get('oauth_token'), data.get('oauth_token_secret'))
         session['%s_oauthtok' % self.name] = tup
@@ -717,29 +695,19 @@ class OAuthRemoteApp(object):
         client.verifier = args.get('oauth_verifier')
         tup = session.get('%s_oauthtok' % self.name)
         if not tup:
-            raise OAuthException(
-                'Token not found, maybe you disabled cookie',
-                type='token_not_found'
-            )
+            raise OAuthException('Token not found, maybe you disabled cookie', type='token_not_found')
         client.resource_owner_key = tup[0]
         client.resource_owner_secret = tup[1]
 
-        uri, headers, data = client.sign(
-            self.expand_url(self.access_token_url),
-            _encode(self.access_token_method)
-        )
+        uri, headers, data = client.sign(self.expand_url(self.access_token_url), _encode(self.access_token_method))
         headers.update(self._access_token_headers)
 
         resp, content = await self.http_request(
-            uri, headers, to_bytes(data, self.encoding),
-            method=self.access_token_method
+            uri, headers, to_bytes(data, self.encoding), method=self.access_token_method
         )
         data = parse_response(resp, content)
         if resp.status not in (200, 201):
-            raise OAuthException(
-                'Invalid response from %s' % self.name,
-                type='invalid_response', data=data
-            )
+            raise OAuthException('Invalid response from %s' % self.name, type='invalid_response', data=data)
         return data
 
     async def handle_oauth2_response(self, session, args):
@@ -749,7 +717,7 @@ class OAuthRemoteApp(object):
         remote_args = {
             'code': args.get('code'),
             'client_secret': self.consumer_secret,
-            'redirect_uri': session.get('%s_oauthredir' % self.name)
+            'redirect_uri': session.get('%s_oauthredir' % self.name),
         }
         log.debug('Prepare oauth2 remote args %r', remote_args)
         remote_args.update(self.access_token_params)
@@ -767,23 +735,13 @@ class OAuthRemoteApp(object):
             qs = client.prepare_request_body(**remote_args)
             url = self.expand_url(self.access_token_url)
             url += ('?' in url and '&' or '?') + qs
-            resp, content = await self.http_request(
-                url,
-                headers=headers,
-                method=self.access_token_method,
-            )
+            resp, content = await self.http_request(url, headers=headers, method=self.access_token_method,)
         else:
-            raise OAuthException(
-                'Unsupported access_token_method: %s' %
-                self.access_token_method
-            )
+            raise OAuthException('Unsupported access_token_method: %s' % self.access_token_method)
 
         data = parse_response(resp, content, content_type=self.content_type)
         if resp.status not in (200, 201):
-            raise OAuthException(
-                'Invalid response from %s' % self.name,
-                type='invalid_response', data=data
-            )
+            raise OAuthException('Invalid response from %s' % self.name, type='invalid_response', data=data)
         return data
 
     def handle_unknown_response(self):
@@ -810,6 +768,7 @@ class OAuthRemoteApp(object):
         """Handles an OAuth callback."""
         context = self.oauth.context
         is_coro = iscoroutinefunction(f)
+
         @wraps(f)
         async def decorated(request, *args, **kwargs):
             nonlocal self, f, context, is_coro
@@ -823,6 +782,7 @@ class OAuthRemoteApp(object):
             if isawaitable(res):
                 res = await res
             return res
+
         return decorated
 
 

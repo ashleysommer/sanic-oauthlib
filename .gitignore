@@ -16,3 +16,4 @@ venv/
 .tox
 *.egg
 .ropeproject/
+.mypy_cache/

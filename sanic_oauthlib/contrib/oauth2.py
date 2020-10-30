@@ -31,8 +31,7 @@ class Grant(object):
     :param user: the authorizatopm user
     """
 
-    def __init__(self, cache=None, client_id=None, code=None,
-                 redirect_uri=None, scopes=None, user=None):
+    def __init__(self, cache=None, client_id=None, code=None, redirect_uri=None, scopes=None, user=None):
         self._cache = cache
         self.client_id = client_id
         self.code = code
@@ -45,9 +44,7 @@ class Grant(object):
 
         Note: This is required by the oauthlib
         """
-        log.debug(
-            "Deleting grant %s for client %s" % (self.code, self.client_id)
-        )
+        log.debug("Deleting grant %s for client %s" % (self.code, self.client_id))
         delattr(self._cache, self.key)
         return None
 
@@ -118,8 +115,7 @@ def bind_cache_grant(app, provider, current_user, config_prefix='OAUTH2'):
         return grant
 
 
-def bind_sqlalchemy(provider, session, user=None, client=None,
-                    token=None, grant=None, current_user=None):
+def bind_sqlalchemy(provider, session, user=None, client=None, token=None, grant=None, current_user=None):
     """Configures the given :class:`OAuth2Provider` instance with the
     required getters and setters for persistence with SQLAlchemy.
 
@@ -181,8 +177,7 @@ def bind_sqlalchemy(provider, session, user=None, client=None,
 
     if grant:
         if not current_user:
-            raise ValueError(('`current_user` is required'
-                              'for Grant Binding'))
+            raise ValueError(('`current_user` is required' 'for Grant Binding'))
         grant_binding = GrantBinding(grant, session, current_user)
         provider.grantgetter(grant_binding.get)
         provider.grantsetter(grant_binding.set)
@@ -240,6 +235,7 @@ class TokenBinding(BaseBinding):
     """Object use by SQLAlchemyBinding to register the token
     getter and setter
     """
+
     def __init__(self, model, session, current_user=None):
         self.current_user = current_user
         super(TokenBinding, self).__init__(model, session)
@@ -271,9 +267,7 @@ class TokenBinding(BaseBinding):
 
         client = request.client
 
-        tokens = self.query.filter_by(
-            client_id=client.client_id,
-            user_id=user.id).all()
+        tokens = self.query.filter_by(client_id=client.client_id, user_id=user.id).all()
         if tokens:
             for tk in tokens:
                 self.session.delete(tk)
@@ -315,7 +309,7 @@ class GrantBinding(BaseBinding):
             redirect_uri=request.redirect_uri,
             scope=' '.join(request.scopes),
             user=self.current_user(),
-            expires=expires
+            expires=expires,
         )
         self.session.add(grant)
 

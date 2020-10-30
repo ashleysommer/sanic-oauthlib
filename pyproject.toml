@@ -1,0 +1,176 @@
+[build-system]
+requires = ["poetry>=1.1.0"]
+build-backend = "poetry.masonry.api"
+
+[tool.poetry]
+name = "Sanic-OAuthlib"
+version = "0.2.3"
+# Don't forget to change the version number in __init__.py along with this one
+description = "OAuthLib for Sanic, ported from Flask-OAuthLib"
+license = "BSD"
+authors = [
+    "Ashley Sommer <ashleysommer@gmail.com>"
+]
+readme = "README.rst"
+repository = "https://github.com/ashleysommer/sanic_oauthlib"
+homepage = "https://github.com/ashleysommer/sanic_oauthlib"
+keywords = []
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Web Environment",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved",
+    "License :: OSI Approved :: BSD License",
+    "Operating System :: POSIX",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.6",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: Implementation",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+    "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+packages = [
+    { include = "sanic_oauthlib" },
+    { include = "example", format = "sdist" },
+    { include = "tests", format = "sdist" },
+    { include = "docs", format = "sdist" },
+]
+
+include = [
+	"*.md",
+	"*.txt",
+    "docs/**/*",
+	"pyproject.toml",
+    "poetry.lock",
+    "MANIFEST.in",
+    "example/*.py",
+    "example/**/*.py",
+    "tests/**/*.py",
+    "sanic_oauthlib/**/*"
+]
+
+[tool.poetry.plugins]
+
+[tool.poetry.plugins."sanic_plugins"]
+"OAuthClient" = "sanic_oauthlib.client:instance"
+"OAuth1Provider" = "sanic_oauthlib.provider.oauth1:instance"
+"OAuth2Provider" = "sanic_oauthlib.provider.oauth2:instance"
+
+[tool.poetry.dependencies]
+python = "^3.6.1"  # latest version of websockets doesn't work on 3.6.0, so using Sanic requires python >= 3.6.1
+sanic = ">=19.12.3,<20.12.0"
+sanic-plugins-framework = ">=0.9.4,<1.0"
+sanic_session_spf = ">=0.5.1"
+sanic_jinja2_spf = ">=0.8.0"
+oauthlib = "3.1.0"
+httpx = "==0.9.3 || ==0.11.1 || ==0.15.4 || >0.16.1,<1.0.0"
+
+[tool.poetry.dev-dependencies]
+pip = ">=19.3"
+setuptools = ">=40.8"
+sqlalchemy = "*"
+pytest = [
+    {version=">=5.3.0,<6.0.0", python="<3.7"},
+    {version=">=5.4.0,<6.0.0", python=">=3.7"}
+]
+pytest-cov = "^2.8.1"
+pytest-sanic = "*"
+asynctest = ">=0.13"
+pytest-asyncio = [
+    {version=">=0.10.0", python="<3.7"},
+    {version=">=0.11.0", python=">=3.7"}
+]
+coverage = "^4.5"
+flake8 = "^3.7"
+isort = {version="^5.0.0", python=">=3.6"}
+black = {version="19.10b0", python=">=3.6"}
+mypy = {version="^0.770.0", python=">=3.6"}
+
+[tool.dephell.main]
+from = {format = "poetry", path = "pyproject.toml"}
+to = {format = "setuppy", path = "setup.py"}
+
+[tool.black]
+line-length = "119"
+skip-string-normalization = true
+target-version = ['py36']
+include = '\.pyi?$'
+exclude = '''
+(
+  /(
+      \.eggs         # exclude a few common directories in the
+    | \.git          # root of the project
+    | \.hg
+    | \.mypy_cache
+    | \.pytest_cache
+    | \.tox
+    | \.venv
+    | _build
+    | htmlcov
+    | docs
+    | examples
+    | sanic_oauthlib.egg-info
+    | buck-out
+    | build
+    | dist
+    | venv
+  )/
+)
+'''
+
+[tool.isort]
+atomic = true
+default_section = "THIRDPARTY"
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+ensure_newline_before_comments = true
+known_first_party = "sanic_oauthlib"
+known_third_party = ["pytest", "nose"]
+line_length = 119
+lines_after_imports = 2
+lines_between_types = 1
+multi_line_output = 3
+
+[tool.tox]
+legacy_tox_ini = """
+[tox]
+isolated_build = true
+skipsdist = true
+envlist = py36, py37, py38, lint, type-checking
+
+[testenv]
+deps =
+    poetry>=1.1.0
+    pip>=19.3
+    setuptools>=40.8
+    py36: coveralls
+passenv = TRAVIS TRAVIS_JOB_ID TRAVIS_BRANCH
+skip_install = true
+commands_pre = poetry install -vvv
+commands =
+    - poetry show
+    poetry run pytest --cov=sanic_oauthlib tests/
+    - poetry run coverage combine --append
+    poetry run coverage report -m
+    poetry run coverage html -i
+    py36: - coveralls
+
+[testenv:lint]
+commands =
+    - poetry show
+    poetry run flake8 sanic_oauthlib
+    poetry run isort --check-only sanic_oauthlib
+    poetry run black --check --verbose --config ./pyproject.toml sanic_oauthlib
+
+[testenv:type-checking]
+commands =
+    - poetry show
+    poetry run mypy --ignore-missing-imports sanic_oauthlib
+"""
+

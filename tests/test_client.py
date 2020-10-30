@@ -6,17 +6,25 @@ from sanic_oauthlib.client import encode_request_data
 from sanic_oauthlib.client import OAuthRemoteApp, oauthclient
 from sanic_oauthlib.client import parse_response
 from asynctest import patch
-import aiohttp
+
 class Response(object):
     def __init__(self, content, headers=None):
-        self.content = content
+        self._content = content
+        self.content = None
         self.headers = headers or {}
 
-    async def text(self):
+    @property
+    def text(self):
         c = self.content
         if isinstance(c, bytes):
             c = c.decode('utf-8')
         return c
+
+    async def aread(self):
+        self.content = self._content
+
+    async def aclose(self):
+        pass
 
     @property
     def status(self):
@@ -70,14 +78,15 @@ def test_app():
     assert client.dev.name == 'dev'
 
 
-def test_parse_xml():
+async def test_parse_xml():
     resp = Response(
         '<foo>bar</foo>', headers={
             'status-code': 200,
             'content-type': 'text/xml'
         }
     )
-    parse_response(resp, resp.read())
+    await resp.aread()
+    parse_response(resp, resp.content)
 
 
 
@@ -147,9 +156,9 @@ class TestOAuthRemoteApp(object):
         assert twitter.access_token_url == 'token url'
         assert twitter.authorize_url == 'auth url'
 
-    @patch('aiohttp.client.ClientSession._request')
-    async def test_http_request(self, urlopen):
-        urlopen.return_value = Response(
+    @patch('httpx._client.AsyncClient.send')
+    async def test_http_request(self, sender):
+        sender.return_value = Response(
             b'{"foo": "bar"}', headers={'status-code': 200}
         )
 
@@ -171,7 +180,7 @@ class TestOAuthRemoteApp(object):
         assert resp.status == 200
         assert 'foo' in content
 
-    # @patch('aiohttp.client.ClientSession._request')
+    # @patch('httpx._client.AsyncClient.request')
     # async def test_raise_http_request(self, urlopen):
     #     error = aiohttp.HTTPError(
     #         'http://example.com/', 404, 'Not Found', None, None

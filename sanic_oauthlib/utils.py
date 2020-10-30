@@ -14,7 +14,7 @@ def _get_uri_from_request(request):
     """
     uri = request._parsed_url.path
     if request._parsed_url.query:
-        uri = uri+b'?'+request._parsed_url.query
+        uri = uri + b'?' + request._parsed_url.query
     try:
         # these work on Sanic 19.6.1 and above
         server_name = request.server_name
@@ -23,21 +23,22 @@ def _get_uri_from_request(request):
     except (AttributeError, NotImplementedError):
         override_server_name = request.app.config.get("SERVER_NAME", False)
         requested_host = request.host
-        server_name = (override_server_name
-            or request.headers.get("x-forwarded-host")
-            or requested_host.split(":")[0])
-        forwarded_port = ((override_server_name.split(":")[1] if override_server_name and ":" in override_server_name else None)
+        server_name = override_server_name or request.headers.get("x-forwarded-host") or requested_host.split(":")[0]
+        forwarded_port = (
+            (override_server_name.split(":")[1] if override_server_name and ":" in override_server_name else None)
             or request.headers.get("x-forwarded-port")
-            or (requested_host.split(":")[1] if ":" in requested_host else None))
+            or (requested_host.split(":")[1] if ":" in requested_host else None)
+        )
         try:
-            server_port = ((int(forwarded_port) if forwarded_port else None)
-                           or request._parsed_url.port
-                           or request.transport.get_extra_info("sockname")[1])
+            server_port = (
+                (int(forwarded_port) if forwarded_port else None)
+                or request._parsed_url.port
+                or request.transport.get_extra_info("sockname")[1]
+            )
         except NotImplementedError:
             server_port = 80
 
-        scheme = (request.headers.get("x-forwarded-proto")
-                  or request.scheme)
+        scheme = request.headers.get("x-forwarded-proto") or request.scheme
     if ":" in server_name:
         server_name, server_port = server_name.split(":", 1)
     include_port = True
@@ -49,7 +50,6 @@ def _get_uri_from_request(request):
     if include_port:
         return scheme + "://" + server_name + ':' + str(server_port) + uri.decode('utf-8')
     return scheme + "://" + server_name + uri.decode('utf-8')
-
 
 
 def extract_params(request=None):
@@ -66,8 +66,18 @@ def extract_params(request=None):
         del headers['wsgi.input']
     if 'wsgi.errors' in headers:
         del headers['wsgi.errors']
-
-    body = {k:request.form.get(k) for k in request.form.keys()}
+    if 'authorization' in headers:
+        auth = [p.strip() for p in str(headers['authorization']).split(" ") if p]
+        if len(auth) > 1 and auth[0] == "Basic":
+            creds = decode_base64(auth[1])
+            if ":" in creds:
+                parts = [p.strip() for p in creds.split(":") if p]
+                if len(parts):
+                    auth = {"username": parts[0], "password": None}
+                    if len(parts) > 1:
+                        auth['password'] = parts[1]
+                    headers['authorization'] = auth  # override the 'authorization' header with a dict of un/pw
+    body = {k: request.form.get(k) for k in request.form.keys()}
     return uri, http_method, body, headers
 
 
@@ -135,4 +145,3 @@ def import_string(name, silent=False):
         if silent:
             return None
         raise e
-

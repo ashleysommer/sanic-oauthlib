@@ -4,7 +4,6 @@ from pickle import Pickler, Unpickler
 
 
 class NullCache(object):
-
     def __getattr__(self, item):
         return None
 
@@ -148,11 +147,8 @@ class Cache(object):
         try:
             self.cache = getattr(self, cache_type)(**kwargs)
         except AttributeError:
-            raise RuntimeError(
-                '`%s` is not a valid cache type!' % cache_type
-            )
+            raise RuntimeError('`%s` is not a valid cache type!' % cache_type)
         app.extensions[config_prefix.lower() + '_cache'] = self.cache
-
 
     def __getattr__(self, key):
         try:
@@ -180,7 +176,6 @@ class Cache(object):
                 return delattr(self.cache, item)
             except (AttributeError, ValueError, LookupError):
                 raise AttributeError('No such attribute: %s' % item)
-
 
     def _config(self, key, default='error'):
         key = key.upper()
@@ -218,7 +213,5 @@ class Cache(object):
 
     def _filesystem(self, **kwargs):
         """Returns a :class:`FileSystemCache` instance"""
-        kwargs.update(dict(
-            threshold=self._config('threshold', 500),
-        ))
+        kwargs.update(dict(threshold=self._config('threshold', 500),))
         return FileSystemCache(self._config('dir', None), **kwargs)

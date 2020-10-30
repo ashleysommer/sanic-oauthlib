@@ -16,14 +16,13 @@ from inspect import isawaitable
 
 from sanic import response
 from sanic.exceptions import Unauthorized
-from spf import SanicPluginsFramework, SanicPlugin
+from spf import SanicPlugin
 from oauthlib import oauth2
 from oauthlib.oauth2 import RequestValidator, Server
-from oauthlib.common import to_unicode, add_params_to_uri
+from oauthlib.common import add_params_to_uri
 from spf.plugin import PluginAssociated
 
-from ..utils import extract_params, decode_base64, create_response, \
-    import_string
+from ..utils import extract_params, create_response, import_string
 
 __all__ = ('OAuth2Provider', 'OAuth2RequestValidator')
 
@@ -31,7 +30,6 @@ log = logging.getLogger('sanic_oauthlib')
 
 
 class OAuth2ProviderAssociated(PluginAssociated):
-
     @property
     def context(self):
         (_p, reg) = self
@@ -286,15 +284,11 @@ class OAuth2ProviderAssociated(PluginAssociated):
         ctx = self.context
         cfg = ctx._config
         expires_in = cfg.get('OAUTH2_PROVIDER_TOKEN_EXPIRES_IN')
-        token_generator = cfg.get(
-            'OAUTH2_PROVIDER_TOKEN_GENERATOR', None
-        )
+        token_generator = cfg.get('OAUTH2_PROVIDER_TOKEN_GENERATOR', None)
         if token_generator and not callable(token_generator):
             token_generator = import_string(token_generator)
 
-        refresh_token_generator = cfg.get(
-            'OAUTH2_PROVIDER_REFRESH_TOKEN_GENERATOR', None
-        )
+        refresh_token_generator = cfg.get('OAUTH2_PROVIDER_REFRESH_TOKEN_GENERATOR', None)
         if refresh_token_generator and not callable(refresh_token_generator):
             refresh_token_generator = import_string(refresh_token_generator)
         _validator = ctx.get('_validator', None)
@@ -311,11 +305,13 @@ class OAuth2ProviderAssociated(PluginAssociated):
         _tokensetter = ctx.get('_tokensetter', None)
         _grantgetter = ctx.get('_grantgetter', None)
         _grantsetter = ctx.get('_grantsetter', None)
-        if _clientgetter is not None and\
-            _tokengetter is not None and\
-            _tokensetter is not None and\
-            _grantgetter is not None and\
-            _grantsetter is not None:
+        if (
+            _clientgetter is not None
+            and _tokengetter is not None
+            and _tokensetter is not None
+            and _grantgetter is not None
+            and _grantsetter is not None
+        ):
 
             usergetter = ctx.get('_usergetter', None)
             validator_class = ctx._validator_class
@@ -376,7 +372,6 @@ class OAuth2ProviderAssociated(PluginAssociated):
         """
         return self.plugin.verify_request(request, scopes, self)
 
-
     def authorize_handler(self, f):
         """Authorization handler decorator.
 
@@ -395,6 +390,7 @@ class OAuth2ProviderAssociated(PluginAssociated):
         """
         plug, reg = self
         context = self.context
+
         @wraps(f)
         async def decorated(request, *args, **kwargs):
             nonlocal self, plug, reg, context
@@ -407,9 +403,7 @@ class OAuth2ProviderAssociated(PluginAssociated):
                 state = request.args.get('state', None)
                 log.debug('Found redirect_uri %s.', redirect_uri)
                 try:
-                    ret = server.validate_authorization_request(
-                        uri, http_method, body, headers
-                    )
+                    ret = server.validate_authorization_request(uri, http_method, body, headers)
                     scopes, credentials = ret
                     kwargs['scopes'] = scopes
                     if 'request' in credentials:
@@ -427,15 +421,11 @@ class OAuth2ProviderAssociated(PluginAssociated):
 
                 except Exception as e:
                     log.exception(e)
-                    return plug._on_exception(context, e, add_params_to_uri(
-                        self.error_uri, {'error': str(e)}
-                    ))
+                    return plug._on_exception(context, e, add_params_to_uri(self.error_uri, {'error': str(e)}))
 
             else:
-                redirect_uri = request.form.get('redirect_uri',
-                    request.args.get('redirect_uri', self.error_uri))
-                state = request.form.get('state',
-                    request.args.get('state', None))
+                redirect_uri = request.form.get('redirect_uri', request.args.get('redirect_uri', self.error_uri))
+                state = request.form.get('state', request.args.get('state', None))
 
             try:
                 rv = f(request, *args, context=context, **kwargs)
@@ -480,6 +470,7 @@ class OAuth2ProviderAssociated(PluginAssociated):
         """
         context = self.context
         plug, reg = self
+
         @wraps(f)
         async def decorated(request, *args, **kwargs):
             nonlocal self, context
@@ -491,9 +482,7 @@ class OAuth2ProviderAssociated(PluginAssociated):
             credentials = credentials or {}
             log.debug('Fetched extra credentials, %r.', credentials)
             try:
-                ret = server.create_token_response(
-                    uri, http_method, body, headers, credentials
-                )
+                ret = server.create_token_response(uri, http_method, body, headers, credentials)
             except oauth2.FatalClientError as e:
                 log.debug('Fatal client error %r', e, exc_info=True)
                 return plug._on_exception(context, e, e.in_uri(self.error_uri))
@@ -501,6 +490,7 @@ class OAuth2ProviderAssociated(PluginAssociated):
                 log.debug('OAuth2Error: %r', e, exc_info=True)
                 return plug._on_exception(context, e)
             return create_response(*ret)
+
         return decorated
 
     def revoke_handler(self, _f):
@@ -520,6 +510,7 @@ class OAuth2ProviderAssociated(PluginAssociated):
 
         .. _`RFC7009`: http://tools.ietf.org/html/rfc7009
         """
+
         @wraps(_f)
         def decorated(request, *args, **kwargs):
             nonlocal self
@@ -530,17 +521,19 @@ class OAuth2ProviderAssociated(PluginAssociated):
                 request.token = token
 
             uri, http_method, body, headers = extract_params(request)
-            ret = server.create_revocation_response(
-                uri, headers=headers, body=body, http_method=http_method)
+            ret = server.create_revocation_response(uri, headers=headers, body=body, http_method=http_method)
             return create_response(*ret)
+
         return decorated
 
     def require_oauth(self, *scopes):
         """Protect resource with specified scopes."""
+
         def wrapper(f):
             nonlocal self
             plug, reg = self
             context = self.context
+
             @wraps(f)
             async def decorated(request, *args, **kwargs):
                 nonlocal self, plug, reg, context
@@ -569,7 +562,9 @@ class OAuth2ProviderAssociated(PluginAssociated):
                 if isawaitable(ret):
                     ret = await ret
                 return ret
+
             return decorated
+
         return wrapper
 
 
@@ -615,6 +610,7 @@ class OAuth2Provider(SanicPlugin):
         def user():
             return jsonify(request.oauth.user)
     """
+
     __slots__ = tuple()
 
     AssociatedTuple = OAuth2ProviderAssociated
@@ -625,8 +621,7 @@ class OAuth2Provider(SanicPlugin):
     def on_registered(self, context, *args, validator_class=None, **kwargs):
         # this will need to be called more than once, for every app it is registered on.
         app = context.app
-        context._config = {k: v for k, v in app.config.items()
-                           if k.startswith("OAUTH2_")}
+        context._config = {k: v for k, v in app.config.items() if k.startswith("OAUTH2_")}
         context._before_request_funcs = []
         context._after_request_funcs = []
         context._exception_handler = None
@@ -655,7 +650,7 @@ class OAuth2Provider(SanicPlugin):
             client_id=request.args.get('client_id'),
             redirect_uri=request.args.get('redirect_uri', None),
             response_type=request.args.get('response_type', None),
-            state=request.args.get('state', None)
+            state=request.args.get('state', None),
         )
         log.debug('Fetched credentials from request %r.', credentials)
         redirect_uri = credentials.get('redirect_uri')
@@ -663,6 +658,7 @@ class OAuth2Provider(SanicPlugin):
 
         uri, http_method, body, headers = extract_params(request)
         try:
+
             def update_credentials(repo):
                 nonlocal credentials
                 for k in repo.keys():
@@ -682,8 +678,7 @@ class OAuth2Provider(SanicPlugin):
             update_credentials(shared_request_context)
             if session:
                 update_credentials(session)
-            ret = server.create_authorization_response(
-                uri, http_method, body, headers, scopes, credentials)
+            ret = server.create_authorization_response(uri, http_method, body, headers, scopes, credentials)
             log.debug('Authorization successful.')
             return create_response(*ret)
         except oauth2.FatalClientError as e:
@@ -698,9 +693,7 @@ class OAuth2Provider(SanicPlugin):
             return cls._on_exception(context, e, e.in_uri(redirect_uri or assoc.error_uri))
         except Exception as e:
             log.exception(e)
-            return cls._on_exception(context, e, add_params_to_uri(
-                assoc.error_uri, {'error': str(e)}
-            ))
+            return cls._on_exception(context, e, add_params_to_uri(assoc.error_uri, {'error': str(e)}))
 
     @classmethod
     def verify_request(cls, request, scopes, assoc):
@@ -732,8 +725,8 @@ class OAuth2RequestValidator(RequestValidator):
     :param grantgetter: a function to get grant token
     :param grantsetter: a function to save grant token
     """
-    def __init__(self, clientgetter, tokengetter, grantgetter,
-                 usergetter=None, tokensetter=None, grantsetter=None):
+
+    def __init__(self, clientgetter, tokengetter, grantgetter, usergetter=None, tokensetter=None, grantsetter=None):
         self._clientgetter = clientgetter
         self._tokengetter = tokengetter
         self._usergetter = usergetter
@@ -782,6 +775,7 @@ class OAuth2RequestValidator(RequestValidator):
         .. _`Section 4.1.3`: http://tools.ietf.org/html/rfc6749#section-4.1.3
         .. _`Section 6`: http://tools.ietf.org/html/rfc6749#section-6
         """
+
         def is_confidential(client):
             if hasattr(client, 'is_confidential'):
                 return client.is_confidential
@@ -843,8 +837,7 @@ class OAuth2RequestValidator(RequestValidator):
         request.client = client
         return True
 
-    def confirm_redirect_uri(self, client_id, code, redirect_uri, client,
-                             *args, **kwargs):
+    def confirm_redirect_uri(self, client_id, code, redirect_uri, client, *args, **kwargs):
         """Ensure client is authorized to redirect to the redirect_uri.
 
         This method is used in the authorization code grant flow. It will
@@ -853,16 +846,14 @@ class OAuth2RequestValidator(RequestValidator):
         validation.
         """
         client = client or self._clientgetter(client_id)
-        log.debug('Confirm redirect uri for client %r and code %r.',
-                  client.client_id, code)
+        log.debug('Confirm redirect uri for client %r and code %r.', client.client_id, code)
         grant = self._grantgetter(client_id=client.client_id, code=code)
         if not grant:
             log.debug('Grant not found.')
             return False
         if hasattr(grant, 'validate_redirect_uri'):
             return grant.validate_redirect_uri(redirect_uri)
-        log.debug('Compare redirect uri for grant %r and %r.',
-                  grant.redirect_uri, redirect_uri)
+        log.debug('Compare redirect uri for grant %r and %r.', grant.redirect_uri, redirect_uri)
 
         testing = 'OAUTHLIB_INSECURE_TRANSPORT' in os.environ
         if testing and redirect_uri is None:
@@ -894,8 +885,7 @@ class OAuth2RequestValidator(RequestValidator):
         if not scopes:
             log.debug('Scope omitted for refresh token %r', refresh_token)
             return True
-        log.debug('Confirm scopes %r for refresh token %r',
-                  scopes, refresh_token)
+        log.debug('Confirm scopes %r for refresh token %r', scopes, refresh_token)
         tok = self._tokengetter(refresh_token=refresh_token)
         return set(tok.scopes) == set(scopes)
 
@@ -913,8 +903,7 @@ class OAuth2RequestValidator(RequestValidator):
         log.debug('Found default scopes %r', scopes)
         return scopes
 
-    def invalidate_authorization_code(self, client_id, code, request,
-                                      *args, **kwargs):
+    def invalidate_authorization_code(self, client_id, code, request, *args, **kwargs):
         """Invalidate an authorization code after use.
 
         We keep the temporary code in a grant, which has a `delete`
@@ -925,13 +914,9 @@ class OAuth2RequestValidator(RequestValidator):
         if grant:
             grant.delete()
 
-    def save_authorization_code(self, client_id, code, request,
-                                *args, **kwargs):
+    def save_authorization_code(self, client_id, code, request, *args, **kwargs):
         """Persist the authorization code."""
-        log.debug(
-            'Persist authorization code %r for client %r',
-            code, client_id
-        )
+        log.debug('Persist authorization code %r for client %r', code, client_id)
         request.client = request.client or self._clientgetter(client_id)
         self._grantsetter(client_id, code, request, *args, **kwargs)
         return request.client.default_redirect_uri
@@ -964,8 +949,7 @@ class OAuth2RequestValidator(RequestValidator):
             return False
 
         # validate expires
-        if tok.expires is not None and \
-                datetime.datetime.utcnow() > tok.expires:
+        if tok.expires is not None and datetime.datetime.utcnow() > tok.expires:
             msg = 'Bearer token is expired.'
             request.error_message = msg
             log.debug(msg)
@@ -1001,9 +985,7 @@ class OAuth2RequestValidator(RequestValidator):
     def validate_code(self, client_id, code, client, request, *args, **kwargs):
         """Ensure the grant code is valid."""
         client = client or self._clientgetter(client_id)
-        log.debug(
-            'Validate code for client %r and code %r', client.client_id, code
-        )
+        log.debug('Validate code for client %r and code %r', client.client_id, code)
         try:
             grant = self._grantgetter(client_id=client.client_id, code=code)
         except KeyError:
@@ -1011,16 +993,16 @@ class OAuth2RequestValidator(RequestValidator):
         if not grant:
             log.debug('Grant not found.')
             return False
-        if hasattr(grant, 'expires') and \
-           datetime.datetime.utcnow() > grant.expires:
+        if hasattr(grant, 'expires') and datetime.datetime.utcnow() > grant.expires:
             log.debug('Grant is expired.')
             return False
 
         request.state = kwargs.get('state')
         request.user = grant.user
         request.scopes = grant.scopes
-        #If PKCE is enabled (see 'is_pkce_required' and 'save_authorization_code')
-        #you MUST set the following based on the information stored:
+
+        # If PKCE is enabled (see 'is_pkce_required' and 'save_authorization_code')
+        # you MUST set the following based on the information stored:
         #    - request.code_challenge
         #    - request.code_challenge_method
         _code_challenge = getattr(grant, 'code_challenge', None)
@@ -1030,8 +1012,7 @@ class OAuth2RequestValidator(RequestValidator):
             request.code_challenge_method = _code_challenge_method
         return True
 
-    def validate_grant_type(self, client_id, grant_type, client, request,
-                            *args, **kwargs):
+    def validate_grant_type(self, client_id, grant_type, client, request, *args, **kwargs):
         """Ensure the client is authorized to use the grant type requested.
 
         It will allow any of the four grant types (`authorization_code`,
@@ -1047,8 +1028,10 @@ class OAuth2RequestValidator(RequestValidator):
             return False
 
         default_grant_types = (
-            'authorization_code', 'password',
-            'client_credentials', 'refresh_token',
+            'authorization_code',
+            'password',
+            'client_credentials',
+            'refresh_token',
         )
 
         # Grant type is allowed if it is part of the 'allowed_grant_types'
@@ -1068,8 +1051,7 @@ class OAuth2RequestValidator(RequestValidator):
 
         return True
 
-    def validate_redirect_uri(self, client_id, redirect_uri, request,
-                              *args, **kwargs):
+    def validate_redirect_uri(self, client_id, redirect_uri, request, *args, **kwargs):
         """Ensure client is authorized to redirect to the redirect_uri.
 
         This method is used in the authorization code grant flow and also
@@ -1083,8 +1065,7 @@ class OAuth2RequestValidator(RequestValidator):
             return client.validate_redirect_uri(redirect_uri)
         return redirect_uri in client.redirect_uris
 
-    def validate_refresh_token(self, refresh_token, client, request,
-                               *args, **kwargs):
+    def validate_refresh_token(self, refresh_token, client, request, *args, **kwargs):
         """Ensure the token is valid and belongs to the client
 
         This method is used by the authorization code grant indirectly by
@@ -1101,8 +1082,7 @@ class OAuth2RequestValidator(RequestValidator):
             return True
         return False
 
-    def validate_response_type(self, client_id, response_type, client, request,
-                               *args, **kwargs):
+    def validate_response_type(self, client_id, response_type, client, request, *args, **kwargs):
         """Ensure client is authorized to use the response type requested.
 
         It will allow any of the two (`code`, `token`) response types by
@@ -1116,24 +1096,20 @@ class OAuth2RequestValidator(RequestValidator):
             return response_type in client.allowed_response_types
         return True
 
-    def validate_scopes(self, client_id, scopes, client, request,
-                        *args, **kwargs):
+    def validate_scopes(self, client_id, scopes, client, request, *args, **kwargs):
         """Ensure the client is authorized access to requested scopes."""
         if hasattr(client, 'validate_scopes'):
             return client.validate_scopes(scopes)
         return set(client.default_scopes).issuperset(set(scopes))
 
-    def validate_user(self, username, password, client, request,
-                      *args, **kwargs):
+    def validate_user(self, username, password, client, request, *args, **kwargs):
         """Ensure the username and password is valid.
 
         Attach user object on request for later using.
         """
         log.debug('Validating username %r and its password', username)
         if self._usergetter is not None:
-            user = self._usergetter(
-                username, password, client, request, *args, **kwargs
-            )
+            user = self._usergetter(username, password, client, request, *args, **kwargs)
             if user:
                 request.user = user
                 return True
@@ -1167,16 +1143,15 @@ class OAuth2RequestValidator(RequestValidator):
         return bool(getattr(client, 'pkce_required', False))
 
     def get_code_challenge(self, code, request):
-        #grant = self._grantgetter(client_id=request.client_id, code=code)
-        #_code_challenge = getattr(grant, 'code_challenge', None)
+        # grant = self._grantgetter(client_id=request.client_id, code=code)
+        # _code_challenge = getattr(grant, 'code_challenge', None)
         # in theory, the "code_challenge" will be stored on the `request`
         # here, because we've already run `validate_code` above.
         return request.code_challenge or None
 
     def get_code_challenge_method(self, code, request):
-        #grant = self._grantgetter(client_id=request.client_id, code=code)
-        #_code_challenge_method = getattr(grant, 'code_challenge_method', None)
+        # grant = self._grantgetter(client_id=request.client_id, code=code)
+        # _code_challenge_method = getattr(grant, 'code_challenge_method', None)
         # in theory the "code_challenge_method" will be stored on the `request`
         # here, because we've already run `validate_code` above.
         return request.code_challenge_method or None
-

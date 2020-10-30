@@ -1,6 +1,18 @@
 Sanic-OAuthLib Changelog
 ========================
 
+Version 0.2.3
+-------------
+
+Released on 30 October, 2020
+
+- Fixed username/password-based Grant Type not working on newer Sanic
+- Replaced aiohttp for httpx
+- Fixed a couple more broken tests
+- Added missing pyproject.toml file to the git repo
+- Ran flake8, Black, and isort over code, lots of formatting fixes
+
+
 Version 0.2.2
 -------------
 
